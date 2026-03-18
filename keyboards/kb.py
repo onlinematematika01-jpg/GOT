@@ -9,12 +9,13 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def admin_main_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🏰 Qirolliklarni yaratish", callback_data="admin_create_kingdoms"))
+    builder.row(InlineKeyboardButton(text="🏰 Standart 7 qirollik yaratish", callback_data="admin_create_kingdoms"))
+    builder.row(InlineKeyboardButton(text="⚙️ Qirolliklar boshqaruvi", callback_data="admin_manage_kingdoms"))
     builder.row(InlineKeyboardButton(text="👑 Qirol tayinlash", callback_data="admin_assign_king"))
     builder.row(InlineKeyboardButton(text="🛡️ Vassal oila qo'shish", callback_data="admin_add_vassal"))
+    builder.row(InlineKeyboardButton(text="🗑️ Vassal oila o'chirish", callback_data="admin_delete_house"))
     builder.row(InlineKeyboardButton(text="📜 Xronikaga yozish", callback_data="admin_write_chronicle"))
     builder.row(InlineKeyboardButton(text="📊 O'yin holati", callback_data="admin_game_status"))
-    builder.row(InlineKeyboardButton(text="🗑️ Xonadon o'chirish", callback_data="admin_delete_house"))
     return builder.as_markup()
 
 
