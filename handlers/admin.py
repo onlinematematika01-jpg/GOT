@@ -250,27 +250,72 @@ async def cb_delete_house(call: CallbackQuery):
     if not is_admin(call.from_user.id):
         await call.answer("🚫 Ruxsat yo'q!")
         return
+    vassals = await get_all_vassals()
+    if not vassals:
+        await call.message.edit_text(
+            "❌ Hech qanday vassal oila yo'q.",
+            reply_markup=back_kb("admin_main")
+        )
+        return
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+    builder = InlineKeyboardBuilder()
+    for v in vassals:
+        kingdom = await get_kingdom(v["kingdom_id"])
+        k_name = f"{kingdom['sigil']} {kingdom['name']}" if kingdom else "?"
+        builder.row(InlineKeyboardButton(
+            text=f"🗑️ {v['name']} ({k_name})",
+            callback_data=f"admin_confirm_delete_{v['id']}"
+        ))
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_main"))
     await call.message.edit_text(
-        "🗑️ O'chirish uchun vassal ID sini /delete_vassal <id> formatida yuboring.",
-        reply_markup=back_kb("admin_main")
+        "🗑️ <b>Qaysi vassal oilani o'chirmoqchisiz?</b>\n\n⚠️ O'chirishdan oldin tasdiqlash so'raladi.",
+        reply_markup=builder.as_markup()
     )
 
 
-@router.message(Command("delete_vassal"))
-async def cmd_delete_vassal(message: Message):
-    if not is_admin(message.from_user.id):
+@router.callback_query(F.data.startswith("admin_confirm_delete_"))
+async def cb_confirm_delete(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
         return
-    parts = message.text.split()
-    if len(parts) < 2:
-        await message.answer("❌ Format: /delete_vassal <id>")
+    vassal_id = int(call.data.split("_")[-1])
+    vassal = await get_vassal(vassal_id)
+    if not vassal:
+        await call.message.edit_text("❌ Vassal topilmadi!", reply_markup=back_kb("admin_main"))
         return
-    try:
-        vassal_id = int(parts[1])
-    except ValueError:
-        await message.answer("❌ ID noto'g'ri")
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Ha, o'chir", callback_data=f"admin_do_delete_{vassal_id}"),
+        InlineKeyboardButton(text="❌ Bekor", callback_data="admin_delete_house")
+    )
+    await call.message.edit_text(
+        f"⚠️ <b>{vassal['name']}</b> oilasini o'chirishni tasdiqlaysizmi?\n\n"
+        f"Oiladagi barcha a'zolar vassalsiz qoladi.",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("admin_do_delete_"))
+async def cb_do_delete(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
         return
+    vassal_id = int(call.data.split("_")[-1])
+    vassal = await get_vassal(vassal_id)
+    if not vassal:
+        await call.message.edit_text("❌ Vassal topilmadi!", reply_markup=back_kb("admin_main"))
+        return
+    name = vassal["name"]
     from database.db import get_pool
     pool = await get_pool()
     async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET vassal_id=NULL, role='member' WHERE vassal_id=$1", vassal_id)
         await conn.execute("DELETE FROM vassals WHERE id=$1", vassal_id)
-    await message.answer(f"✅ Vassal {vassal_id} o'chirildi.", reply_markup=admin_main_kb())
+    await add_chronicle("system", "Vassal o'chirildi", f"{name} oilasi admin tomonidan o'chirildi", actor_id=call.from_user.id)
+    await call.message.edit_text(
+        f"✅ <b>{name}</b> oilasi muvaffaqiyatli o'chirildi!",
+        reply_markup=admin_main_kb()
+    )
