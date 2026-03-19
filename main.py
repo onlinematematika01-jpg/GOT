@@ -10,7 +10,9 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import BOT_TOKEN
 from database.db import init_db
-from handlers import admin, king, lord, member, common, assassination
+from handlers import admin, king, lord, member, common, assassination, war
+from handlers.war import process_weekly_tributes
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from middlewares.auth import AuthMiddleware
 
 logging.basicConfig(
@@ -39,6 +41,18 @@ async def main():
     dp.include_router(lord.router)
     dp.include_router(member.router)
     dp.include_router(assassination.router)
+    dp.include_router(war.router)
+
+    # Haftalik tribute scheduler
+    scheduler = AsyncIOScheduler(timezone='Asia/Tashkent')
+    scheduler.add_job(
+        process_weekly_tributes,
+        trigger='cron',
+        day_of_week='sat',
+        hour=20, minute=0,
+        args=[bot]
+    )
+    scheduler.start()
 
     logger.info("Bot starting...")
     await bot.delete_webhook(drop_pending_updates=True)
