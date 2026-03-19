@@ -10,15 +10,11 @@ from datetime import datetime, timedelta, timezone
 from database.queries import (
     get_user, update_user, get_vassal, get_vassal_members, cast_vote,
     get_chronicles, add_chronicle, buy_artifact, get_artifacts,
-    get_kingdom, update_vassal, get_election_winner, update_kingdom
+    get_kingdom, update_vassal, get_election_winner, update_kingdom,
+    get_price, get_all_prices
 )
 from keyboards.kb import member_main_kb, market_kb, back_kb, candidates_kb
-from config import (
-    DAILY_FARM_GOLD, GOLD_TO_SOLDIER_RATE,
-    VALYRIAN_STEEL_PRICE, WILDFIRE_PRICE,
-    DRAGON_A_PRICE, DRAGON_B_PRICE, DRAGON_C_PRICE,
-    MIN_VASSAL_MEMBERS
-)
+from config import DAILY_FARM_GOLD, GOLD_TO_SOLDIER_RATE, MIN_VASSAL_MEMBERS
 
 router = Router()
 
@@ -229,27 +225,27 @@ async def _buy(call: CallbackQuery, db_user: dict, artifact: str, price: int, ti
 
 @router.callback_query(F.data == "buy_valyrian")
 async def cb_buy_valyrian(call: CallbackQuery, db_user: dict):
-    await _buy(call, db_user, "🗡️ Valeriya Po'lati", VALYRIAN_STEEL_PRICE)
+    await _buy(call, db_user, "🗡️ Valeriya Po'lati", await get_price("valyrian"))
 
 
 @router.callback_query(F.data == "buy_wildfire")
 async def cb_buy_wildfire(call: CallbackQuery, db_user: dict):
-    await _buy(call, db_user, "🔥 Yovvoyi Olov", WILDFIRE_PRICE)
+    await _buy(call, db_user, "🔥 Yovvoyi Olov", await get_price("wildfire"))
 
 
 @router.callback_query(F.data == "buy_dragon_a")
 async def cb_buy_dragon_a(call: CallbackQuery, db_user: dict):
-    await _buy(call, db_user, "🐉 Ajdar", DRAGON_A_PRICE, "A")
+    await _buy(call, db_user, "🐉 Ajdar", await get_price("dragon_a"), "A")
 
 
 @router.callback_query(F.data == "buy_dragon_b")
 async def cb_buy_dragon_b(call: CallbackQuery, db_user: dict):
-    await _buy(call, db_user, "🐉 Ajdar", DRAGON_B_PRICE, "B")
+    await _buy(call, db_user, "🐉 Ajdar", await get_price("dragon_b"), "B")
 
 
 @router.callback_query(F.data == "buy_dragon_c")
 async def cb_buy_dragon_c(call: CallbackQuery, db_user: dict):
-    await _buy(call, db_user, "🐉 Ajdar", DRAGON_C_PRICE, "C")
+    await _buy(call, db_user, "🐉 Ajdar", await get_price("dragon_c"), "C")
 
 
 # ── Gold → Soldier exchange ───────────────────────────────────────────────────
