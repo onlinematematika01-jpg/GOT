@@ -444,3 +444,83 @@ async def get_all_kings():
                WHERE u.role = 'king'
                ORDER BY k.name"""
         )
+
+
+# ── Market prices queries ─────────────────────────────────────────────────────
+
+async def get_all_prices():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM market_prices ORDER BY item")
+        return {r["item"]: {"price": r["price"], "label": r["label"]} for r in rows}
+
+
+async def get_price(item: str) -> int:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT price FROM market_prices WHERE item=$1", item)
+        return row["price"] if row else 0
+
+
+async def update_price(item: str, price: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE market_prices SET price=$1 WHERE item=$2",
+            price, item
+        )
+
+
+# ── Loan queries ──────────────────────────────────────────────────────────────
+
+async def create_loan(borrower_type: str, borrower_id: int,
+                      amount: int, interest: int = 0, due_date=None):
+    pool = await get_pool()
+    total_due = amount + (amount * interest // 100)
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """INSERT INTO loans
+               (borrower_type, borrower_id, amount, interest, total_due, due_date)
+               VALUES ($1, $2, $3, $4, $5, $6) RETURNING *""",
+            borrower_type, borrower_id, amount, interest, total_due, due_date
+        )
+
+
+async def get_loans(borrower_type: str, borrower_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            """SELECT * FROM loans
+               WHERE borrower_type=$1 AND borrower_id=$2
+               ORDER BY created_at DESC""",
+            borrower_type, borrower_id
+        )
+
+
+async def get_all_active_loans():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT * FROM loans WHERE status='active' ORDER BY created_at"
+        )
+
+
+async def repay_loan(loan_id: int, amount: int):
+    """Qarzni to'lash — qisman yoki to'liq"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        loan = await conn.fetchrow("SELECT * FROM loans WHERE id=$1", loan_id)
+        if not loan:
+            return None
+        new_paid = loan["paid"] + amount
+        status = "paid" if new_paid >= loan["total_due"] else "active"
+        return await conn.fetchrow(
+            """UPDATE loans SET paid=$1, status=$2 WHERE id=$3 RETURNING *""",
+            new_paid, status, loan_id
+        )
+
+
+async def get_loan(loan_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow("SELECT * FROM loans WHERE id=$1", loan_id)
