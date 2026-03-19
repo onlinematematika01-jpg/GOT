@@ -11,7 +11,9 @@ from database.queries import (
     get_all_kingdoms, create_kingdom, get_all_vassals, create_vassal,
     get_kingdom, get_vassal, update_kingdom, update_vassal,
     get_user, update_user, add_chronicle,
-    get_kingdom_members, get_kingdom_vassals, get_vassal_members
+    get_kingdom_members, get_kingdom_vassals, get_vassal_members,
+    get_all_prices, update_price, create_loan, get_all_active_loans,
+    repay_loan, get_loan, get_loans
 )
 from keyboards.kb import admin_main_kb, admin_kingdoms_kb, admin_vassal_kingdom_kb, back_kb
 from config import ADMIN_IDS, KINGDOM_NAMES
@@ -45,6 +47,15 @@ class AdminStates(StatesGroup):
     waiting_move_target_type  = State()
     waiting_move_kingdom      = State()
     waiting_move_vassal       = State()
+    # Temir Bank
+    waiting_price_item        = State()
+    waiting_price_amount      = State()
+    waiting_loan_type         = State()
+    waiting_loan_borrower     = State()
+    waiting_loan_amount       = State()
+    waiting_loan_interest     = State()
+    waiting_repay_loan        = State()
+    waiting_repay_amount      = State()
 
 
 # ── /admin command ────────────────────────────────────────────────────────────
@@ -760,5 +771,330 @@ async def cb_do_move_vassal(call: CallbackQuery, state: FSMContext, bot: Bot):
     )
     await call.message.edit_text(
         f"✅ <b>{name}</b> 🛡️ <b>{vassal['name']}</b> oilasiga ko'chirildi!",
+        reply_markup=admin_main_kb()
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TEMIR BANK BOSHQARUVI
+# ══════════════════════════════════════════════════════════════════════════════
+
+def iron_bank_admin_kb():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="💰 Narxlarni o'zgartirish", callback_data="admin_bank_prices"))
+    builder.row(InlineKeyboardButton(text="🏰 Qirollikka qarz berish", callback_data="admin_loan_kingdom"))
+    builder.row(InlineKeyboardButton(text="🛡️ Vassalga qarz berish", callback_data="admin_loan_vassal"))
+    builder.row(InlineKeyboardButton(text="📋 Barcha qarzlar", callback_data="admin_all_loans"))
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_main"))
+    return builder.as_markup()
+
+
+@router.callback_query(F.data == "admin_iron_bank")
+async def cb_iron_bank(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
+        return
+    prices = await get_all_prices()
+    text = "🏦 <b>Temir Bank Boshqaruvi</b>\n\n"
+    text += "📦 <b>Hozirgi narxlar:</b>\n"
+    for item, info in prices.items():
+        text += f"  {info['label']}: <b>{info['price']}💰</b>\n"
+    await call.message.edit_text(text, reply_markup=iron_bank_admin_kb())
+
+
+# ── Narx o'zgartirish ─────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_bank_prices")
+async def cb_bank_prices(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
+        return
+    prices = await get_all_prices()
+    builder = InlineKeyboardBuilder()
+    for item, info in prices.items():
+        builder.row(InlineKeyboardButton(
+            text=f"{info['label']} — {info['price']}💰",
+            callback_data=f"admin_setprice_{item}"
+        ))
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_iron_bank"))
+    await state.set_state(AdminStates.waiting_price_item)
+    await call.message.edit_text(
+        "💰 <b>Qaysi tovar narxini o'zgartirmoqchisiz?</b>",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("admin_setprice_"), AdminStates.waiting_price_item)
+async def cb_setprice_item(call: CallbackQuery, state: FSMContext):
+    item = call.data.replace("admin_setprice_", "")
+    prices = await get_all_prices()
+    info = prices.get(item, {})
+    await state.update_data(price_item=item, price_label=info.get("label", item))
+    await state.set_state(AdminStates.waiting_price_amount)
+    await call.message.edit_text(
+        f"🔢 <b>{info.get('label', item)}</b> uchun yangi narx kiriting\n"
+        f"(hozirgi: {info.get('price', '?')}💰):",
+        reply_markup=back_kb("admin_bank_prices")
+    )
+
+
+@router.message(AdminStates.waiting_price_amount)
+async def msg_price_amount(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        price = int(message.text.strip())
+        if price <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Musbat butun son kiriting.")
+        return
+    data = await state.get_data()
+    item = data["price_item"]
+    label = data["price_label"]
+    await update_price(item, price)
+    await state.clear()
+    await message.answer(
+        f"✅ {label} narxi <b>{price}💰</b> ga o'zgartirildi!",
+        reply_markup=admin_main_kb()
+    )
+    await add_chronicle("system", "Narx o'zgartirildi",
+                        f"{label}: {price} oltin", actor_id=message.from_user.id)
+
+
+# ── Qarz berish ───────────────────────────────────────────────────────────────
+
+async def _start_loan(call, state, borrower_type: str):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
+        return
+    if borrower_type == "kingdom":
+        items = await get_all_kingdoms()
+        builder = InlineKeyboardBuilder()
+        for k in items:
+            builder.row(InlineKeyboardButton(
+                text=f"{k['sigil']} {k['name']} | 💰{k['gold']}",
+                callback_data=f"loan_borrower_kingdom_{k['id']}"
+            ))
+    else:
+        items = await get_all_vassals()
+        builder = InlineKeyboardBuilder()
+        for v in items:
+            kingdom = await get_kingdom(v["kingdom_id"])
+            k_name = f"{kingdom['sigil']}{kingdom['name']}" if kingdom else "?"
+            builder.row(InlineKeyboardButton(
+                text=f"🛡️ {v['name']} • {k_name} | 💰{v['gold']}",
+                callback_data=f"loan_borrower_vassal_{v['id']}"
+            ))
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_iron_bank"))
+    await state.set_state(AdminStates.waiting_loan_borrower)
+    label = "Qirollik" if borrower_type == "kingdom" else "Vassal oila"
+    await call.message.edit_text(
+        f"🏦 Qaysi {label}ga qarz berasiz?",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data == "admin_loan_kingdom")
+async def cb_loan_kingdom(call: CallbackQuery, state: FSMContext):
+    await state.update_data(loan_type="kingdom")
+    await _start_loan(call, state, "kingdom")
+
+
+@router.callback_query(F.data == "admin_loan_vassal")
+async def cb_loan_vassal(call: CallbackQuery, state: FSMContext):
+    await state.update_data(loan_type="vassal")
+    await _start_loan(call, state, "vassal")
+
+
+@router.callback_query(F.data.startswith("loan_borrower_"), AdminStates.waiting_loan_borrower)
+async def cb_loan_borrower(call: CallbackQuery, state: FSMContext):
+    parts = call.data.split("_")
+    # loan_borrower_kingdom_5  yoki  loan_borrower_vassal_3
+    btype = parts[2]
+    bid = int(parts[3])
+    await state.update_data(loan_borrower_type=btype, loan_borrower_id=bid)
+    await state.set_state(AdminStates.waiting_loan_amount)
+    await call.message.edit_text(
+        "💰 Qarz miqdorini kiriting (oltin):",
+        reply_markup=back_kb("admin_iron_bank")
+    )
+
+
+@router.message(AdminStates.waiting_loan_amount)
+async def msg_loan_amount(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        amount = int(message.text.strip())
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Musbat butun son kiriting.")
+        return
+    await state.update_data(loan_amount=amount)
+    await state.set_state(AdminStates.waiting_loan_interest)
+    await message.answer(
+        f"📊 Foiz stavkasini kiriting (%)\n"
+        f"(0 kiritsangiz — foizsiz qarz):",
+        reply_markup=back_kb("admin_iron_bank")
+    )
+
+
+@router.message(AdminStates.waiting_loan_interest)
+async def msg_loan_interest(message: Message, state: FSMContext, bot: Bot):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        interest = int(message.text.strip())
+        if interest < 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ 0 yoki undan katta son kiriting.")
+        return
+
+    data = await state.get_data()
+    btype = data["loan_borrower_type"]
+    bid = data["loan_borrower_id"]
+    amount = data["loan_amount"]
+    total = amount + (amount * interest // 100)
+
+    # Qarzni DB ga yozish
+    loan = await create_loan(btype, bid, amount, interest)
+
+    # Oltin berish
+    if btype == "kingdom":
+        obj = await get_kingdom(bid)
+        await update_kingdom(bid, gold=obj["gold"] + amount)
+        obj_name = f"{obj['sigil']} {obj['name']}"
+        # Qirolga xabar
+        if obj["king_id"]:
+            try:
+                await bot.send_message(
+                    obj["king_id"],
+                    f"🏦 <b>Temir Bank qarzi!</b>\n\n"
+                    f"💰 Miqdor: {amount} oltin\n"
+                    f"📊 Foiz: {interest}%\n"
+                    f"💸 Qaytarish: {total} oltin\n\n"
+                    f"Oltin xazinangizga qo'shildi!"
+                )
+            except Exception:
+                pass
+    else:
+        obj = await get_vassal(bid)
+        await update_vassal(bid, gold=obj["gold"] + amount)
+        obj_name = obj["name"]
+        # Lordga xabar
+        if obj["lord_id"]:
+            try:
+                await bot.send_message(
+                    obj["lord_id"],
+                    f"🏦 <b>Temir Bank qarzi!</b>\n\n"
+                    f"💰 Miqdor: {amount} oltin\n"
+                    f"📊 Foiz: {interest}%\n"
+                    f"💸 Qaytarish: {total} oltin\n\n"
+                    f"Oltin oila xazinasiga qo'shildi!"
+                )
+            except Exception:
+                pass
+
+    await state.clear()
+    foiz_text = f"{interest}% foiz bilan" if interest > 0 else "foizsiz"
+    await message.answer(
+        f"✅ <b>{obj_name}</b> ga qarz berildi!\n\n"
+        f"💰 Berildi: {amount} oltin ({foiz_text})\n"
+        f"💸 Qaytarish kerak: {total} oltin",
+        reply_markup=admin_main_kb()
+    )
+    await add_chronicle("loan", "Temir Bank qarzi",
+                        f"{obj_name}: {amount} oltin ({foiz_text})",
+                        actor_id=message.from_user.id)
+
+
+# ── Barcha qarzlar ro'yxati ───────────────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_all_loans")
+async def cb_all_loans(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
+        return
+    loans = await get_all_active_loans()
+    if not loans:
+        await call.message.edit_text(
+            "📋 Hozircha faol qarz yo'q.",
+            reply_markup=back_kb("admin_iron_bank")
+        )
+        return
+
+    builder = InlineKeyboardBuilder()
+    text = "📋 <b>Faol qarzlar:</b>\n\n"
+    for loan in loans:
+        if loan["borrower_type"] == "kingdom":
+            obj = await get_kingdom(loan["borrower_id"])
+            name = f"{obj['sigil']} {obj['name']}" if obj else "?"
+        else:
+            obj = await get_vassal(loan["borrower_id"])
+            name = f"🛡️ {obj['name']}" if obj else "?"
+
+        remaining = loan["total_due"] - loan["paid"]
+        text += (
+            f"🆔 #{loan['id']} — {name}\n"
+            f"  💰 Qarz: {loan['amount']} | 💸 Qoldi: {remaining}\n"
+        )
+        builder.row(InlineKeyboardButton(
+            text=f"✅ #{loan['id']} {name} — {remaining}💰 qoldi",
+            callback_data=f"admin_repay_{loan['id']}"
+        ))
+
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_iron_bank"))
+    await call.message.edit_text(text, reply_markup=builder.as_markup())
+
+
+@router.callback_query(F.data.startswith("admin_repay_"))
+async def cb_repay_start(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
+        return
+    loan_id = int(call.data.split("_")[-1])
+    loan = await get_loan(loan_id)
+    if not loan:
+        await call.answer("❌ Qarz topilmadi!")
+        return
+    remaining = loan["total_due"] - loan["paid"]
+    await state.update_data(repay_loan_id=loan_id)
+    await state.set_state(AdminStates.waiting_repay_amount)
+    await call.message.edit_text(
+        f"💸 <b>Qarz #{loan_id}</b>\n\n"
+        f"Jami: {loan['total_due']} | To'langan: {loan['paid']} | Qoldi: {remaining}\n\n"
+        f"To'lanayotgan miqdorni kiriting:",
+        reply_markup=back_kb("admin_all_loans")
+    )
+
+
+@router.message(AdminStates.waiting_repay_amount)
+async def msg_repay_amount(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        amount = int(message.text.strip())
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Musbat son kiriting.")
+        return
+
+    data = await state.get_data()
+    loan_id = data["repay_loan_id"]
+    loan = await repay_loan(loan_id, amount)
+    await state.clear()
+
+    if loan["status"] == "paid":
+        status_text = "✅ <b>Qarz to'liq yopildi!</b>"
+    else:
+        remaining = loan["total_due"] - loan["paid"]
+        status_text = f"💸 Qolgan qarz: <b>{remaining}</b> oltin"
+
+    await message.answer(
+        f"✅ #{loan_id} qarzga {amount} oltin to'landi!\n\n{status_text}",
         reply_markup=admin_main_kb()
     )
