@@ -122,7 +122,7 @@ async def msg_decree(message: Message, state: FSMContext, bot: Bot, db_user: dic
         f"✅ Farmon {sent} ta a'zoga yuborildi!",
         reply_markup=king_main_kb()
     )
-    await add_chronicle("decree", f"{kingdom['name']} Farmoni", message.text, actor_id=message.from_user.id)
+    await add_chronicle("decree", f"{kingdom['name']} Farmoni", message.text, actor_id=message.from_user.id, bot=bot)
 
 
 # ── Request resources from vassal ─────────────────────────────────────────────
