@@ -42,8 +42,8 @@ async def cmd_start(message: Message, db_user: dict):
     user = db_user
     role = user.get("role", "member")
 
-    # If new user (no kingdom assigned yet), queue them
-    if role == "member" and not user.get("kingdom_id"):
+    # Queue: yangi user YOKI vassali o'chirilgan user
+    if role == "member" and not user.get("vassal_id"):
         result = await assign_user_to_slot(message.from_user.id)
         if "error" not in result:
             phase = result.get("phase", 1)
