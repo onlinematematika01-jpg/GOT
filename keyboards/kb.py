@@ -183,3 +183,27 @@ def candidates_kb(candidates, vassal_id: int) -> InlineKeyboardMarkup:
         ))
     builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="main_menu"))
     return builder.as_markup()
+
+
+def dynamic_market_kb(prices: dict) -> InlineKeyboardMarkup:
+    """Narxlar DB dan keladi — admin o'zgartirsa yangilanadi"""
+    builder = InlineKeyboardBuilder()
+    items = {
+        "valyrian":  "buy_valyrian",
+        "wildfire":  "buy_wildfire",
+        "dragon_a":  "buy_dragon_a",
+        "dragon_b":  "buy_dragon_b",
+        "dragon_c":  "buy_dragon_c",
+    }
+    for item, cb in items.items():
+        info = prices.get(item, {})
+        label = info.get("label", item)
+        price = info.get("price", "?")
+        builder.row(InlineKeyboardButton(
+            text=f"{label} ({price}💰)",
+            callback_data=cb
+        ))
+    builder.row(InlineKeyboardButton(text="💱 Oltin→Qo\'shin", callback_data="exchange_gold"))
+    builder.row(InlineKeyboardButton(text="🗡️ Suiqasd (Fitna)", callback_data="assassination"))
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="main_menu"))
+    return builder.as_markup()
