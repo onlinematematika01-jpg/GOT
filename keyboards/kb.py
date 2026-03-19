@@ -17,6 +17,7 @@ def admin_main_kb() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="📜 Xronikaga yozish", callback_data="admin_write_chronicle"))
     builder.row(InlineKeyboardButton(text="📊 O'yin holati", callback_data="admin_game_status"))
     builder.row(InlineKeyboardButton(text="🔀 A'zoni ko'chirish", callback_data="admin_move_user"))
+    builder.row(InlineKeyboardButton(text="📜 Xronika", callback_data="view_chronicles"))
     builder.row(InlineKeyboardButton(text="🏦 Temir Bank boshqaruvi", callback_data="admin_iron_bank"))
     return builder.as_markup()
 
@@ -62,6 +63,7 @@ def king_main_kb() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="🤝 Diplomatiya", callback_data="king_diplomacy"))
     builder.row(InlineKeyboardButton(text="📊 Qirollik holati", callback_data="king_status"))
     builder.row(InlineKeyboardButton(text="⚔️ Urush holati", callback_data="king_war_status"))
+    builder.row(InlineKeyboardButton(text="📜 Xronika", callback_data="view_chronicles"))
     builder.row(InlineKeyboardButton(text="🏪 Iron Bank", callback_data="market_main"))
     return builder.as_markup()
 
@@ -126,6 +128,7 @@ def lord_main_kb() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="🗳️ Saylov o'tkazish", callback_data="lord_election"))
     builder.row(InlineKeyboardButton(text="🚀 Panoh so'rash", callback_data="lord_defect"))
     builder.row(InlineKeyboardButton(text="⚔️ Urushga yordam", callback_data="lord_war_support"))
+    builder.row(InlineKeyboardButton(text="📜 Xronika", callback_data="view_chronicles"))
     builder.row(InlineKeyboardButton(text="🏪 Iron Bank", callback_data="market_main"))
     return builder.as_markup()
 
