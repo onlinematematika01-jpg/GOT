@@ -254,7 +254,7 @@ async def cb_del_kingdom_do(call: CallbackQuery, bot: Bot):
         except Exception:
             pass
 
-    await add_chronicle("system", "Qirollik tarqatildi", f"{name} admin tomonidan o'chirildi", actor_id=call.from_user.id)
+    await add_chronicle("system", "Qirollik tarqatildi", f"{name} admin tomonidan o'chirildi", actor_id=call.from_user.id, bot=bot)
     await call.message.edit_text(
         f"✅ <b>{name}</b> qirolligi o'chirildi!",
         reply_markup=admin_main_kb()
