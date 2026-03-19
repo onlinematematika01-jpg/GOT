@@ -277,7 +277,7 @@ async def _process_surrender(bot: Bot, war, attacker, defender):
         f"💰 {gold_transfer} oltin + {soldiers_transfer} askar {attacker['name']}ga o'tdi\n"
         f"📅 Har shanba tribute: 10%"
     )
-    await add_chronicle("war_end", f"🏳️ Taslim!", chronicle_text)
+    await add_chronicle("war_end", f"🏳️ Taslim!", chronicle_text, bot=bot)
 
     # Barcha a'zolarga xabar
     all_members = (
