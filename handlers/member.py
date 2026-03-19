@@ -6,7 +6,6 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime, timedelta, timezone
-import random
 
 from database.queries import (
     get_user, update_user, get_vassal, get_vassal_members, cast_vote,
@@ -18,14 +17,10 @@ from config import (
     DAILY_FARM_GOLD, GOLD_TO_SOLDIER_RATE,
     VALYRIAN_STEEL_PRICE, WILDFIRE_PRICE,
     DRAGON_A_PRICE, DRAGON_B_PRICE, DRAGON_C_PRICE,
-    ASSASSINATION_SUCCESS_THRESHOLD, MIN_VASSAL_MEMBERS
+    MIN_VASSAL_MEMBERS
 )
 
 router = Router()
-
-
-class MemberStates(StatesGroup):
-    waiting_assassin_target = State()
 
 
 # ── Daily Farm ────────────────────────────────────────────────────────────────
@@ -33,14 +28,16 @@ class MemberStates(StatesGroup):
 @router.callback_query(F.data == "daily_farm")
 async def cb_daily_farm(call: CallbackQuery, db_user: dict):
     user = db_user
-    now = datetime.now(timezone.utc)
+    # Har doim timezone-naive UTC ishlatiladi (DB bilan mos)
+    now = datetime.utcnow()
     last = user.get("last_farm")
 
     if last:
         if isinstance(last, str):
             last = datetime.fromisoformat(last)
-        if last.tzinfo is None:
-            last = last.replace(tzinfo=timezone.utc)
+        # Agar timezone-aware kelsa — naive ga aylantir
+        if hasattr(last, "tzinfo") and last.tzinfo is not None:
+            last = last.replace(tzinfo=None)
         next_farm = last + timedelta(days=1)
         if now < next_farm:
             remaining = next_farm - now
@@ -272,79 +269,3 @@ async def cb_exchange_gold(call: CallbackQuery, db_user: dict):
         "⚔️ <b>Ayirboshlash muvaffaqiyatli!</b>\n\n100 💰 oltin → 100 ⚔️ qo'shin",
         reply_markup=back_kb("market_main")
     )
-
-
-# ── Assassination ─────────────────────────────────────────────────────────────
-
-@router.callback_query(F.data == "assassination")
-async def cb_assassination(call: CallbackQuery, db_user: dict, state: FSMContext):
-    await state.set_state(MemberStates.waiting_assassin_target)
-    await call.message.edit_text(
-        "🗡️ <b>Suiqasd (Fitna)</b>\n\n"
-        "Nishon Telegram ID sini yuboring:\n\n"
-        "⚠️ Muvaffaqiyat ehtimoli: tasodifiy (1-100)\n"
-        "Agar 70+ chiqsa — muvaffaqiyatli!",
-        reply_markup=back_kb("market_main")
-    )
-
-
-@router.message(MemberStates.waiting_assassin_target)
-async def msg_assassination(message: Message, state: FSMContext, db_user: dict, bot: Bot):
-    try:
-        target_id = int(message.text.strip())
-    except ValueError:
-        await message.answer("❌ Noto'g'ri ID. Raqam kiriting.")
-        return
-
-    target = await get_user(target_id)
-    if not target:
-        await message.answer("❌ Foydalanuvchi topilmadi!")
-        await state.clear()
-        return
-
-    if target_id == message.from_user.id:
-        await message.answer("❌ O'zingizga suiqasd qilolmaysiz!")
-        await state.clear()
-        return
-
-    roll = random.randint(1, 100)
-    success = roll >= ASSASSINATION_SUCCESS_THRESHOLD
-    target_name = target["full_name"] or target["username"] or str(target_id)
-
-    if success:
-        result_text = (
-            f"🗡️ <b>SUIQASD MUVAFFAQIYATLI!</b>\n\n"
-            f"🎲 Zar: {roll}/100\n"
-            f"💀 {target_name} halok bo'ldi!"
-        )
-        victim_text = (
-            f"💀 <b>Siz suiqasd qurboni bo'ldingiz!</b>\n\n"
-            f"Kimdir sizga qarshi fitna uyushtirdi..."
-        )
-        await add_chronicle(
-            "assassination", "Suiqasd!",
-            f"Muvaffaqiyatli suiqasd: {target_name}",
-            actor_id=message.from_user.id, target_id=target_id
-        )
-    else:
-        result_text = (
-            f"🎲 <b>SUIQASD MUVAFFAQIYATSIZ!</b>\n\n"
-            f"🎲 Zar: {roll}/100\n"
-            f"😅 {target_name} omon qoldi! Siz fosh bo'ldingiz!"
-        )
-        victim_text = (
-            f"⚠️ <b>Sizga suiqasd urinishi bo'ldi — lekin muvaffaqiyatsiz!</b>"
-        )
-        await add_chronicle(
-            "assassination", "Muvaffaqiyatsiz suiqasd",
-            f"Suiqasd: {target_name} omon qoldi",
-            actor_id=message.from_user.id, target_id=target_id
-        )
-
-    try:
-        await bot.send_message(target_id, victim_text)
-    except Exception:
-        pass
-
-    await state.clear()
-    await message.answer(result_text, reply_markup=member_main_kb())
