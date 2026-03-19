@@ -36,6 +36,9 @@ ASSASSINATION_SUCCESS_THRESHOLD = 70  # 70+ = success
 PUNISHMENT_SOLDIER_COST = 10
 
 # Kingdom names
+# Xronika kanali
+CHRONICLE_CHANNEL_ID = -1003744070167
+
 KINGDOM_NAMES = [
     "Stark",
     "Lannister",
