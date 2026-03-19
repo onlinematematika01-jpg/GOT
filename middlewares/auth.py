@@ -41,4 +41,21 @@ class AuthMiddleware(BaseMiddleware):
 
             data["db_user"] = dict(db_user)
 
+            # O'yin to'xtatilgan bo'lsa — admindan boshqa hamma bloklandi
+            from database.queries import get_game_active
+            is_active = await get_game_active()
+            if not is_active and dict(db_user).get("role") != "admin":
+                # Faqat callback va message lar bloklanadi
+                if isinstance(event, Message) and not event.text.startswith("/start"):
+                    await event.answer(
+                        "⏸️ O'yin hozircha to'xtatilgan.\n"
+                        "Admin tez orada davom ettiradi..."
+                    )
+                    return
+                elif isinstance(event, CallbackQuery):
+                    await event.answer(
+                        "⏸️ O'yin to'xtatilgan!", show_alert=True
+                    )
+                    return
+
         return await handler(event, data)
