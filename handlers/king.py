@@ -283,7 +283,8 @@ async def cb_diplomacy(call: CallbackQuery, db_user: dict):
     await call.message.edit_text("🤝 <b>Diplomatiya</b>", reply_markup=diplomacy_kb())
 
 
-@router.callback_query(F.data == "king_declare_war")
+# war.py da ishlov beriladi
+# @router.callback_query(F.data == "king_declare_war")
 async def cb_declare_war(call: CallbackQuery, db_user: dict, state: FSMContext):
     if not is_king(db_user):
         await call.answer("👑 Faqat Qirollar uchun!")
@@ -298,7 +299,7 @@ async def cb_declare_war(call: CallbackQuery, db_user: dict, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.startswith("war_target_"), KingStates.waiting_war_target)
+# @router.callback_query(F.data.startswith("war_target_"), KingStates.waiting_war_target)
 async def cb_war_target(call: CallbackQuery, state: FSMContext, bot: Bot, db_user: dict):
     target_id = int(call.data.split("_")[-1])
     kingdom = await get_kingdom_by_king(call.from_user.id)
