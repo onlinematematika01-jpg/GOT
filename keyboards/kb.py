@@ -19,6 +19,7 @@ def admin_main_kb() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="🔀 A'zoni ko'chirish", callback_data="admin_move_user"))
     builder.row(InlineKeyboardButton(text="📜 Xronika", callback_data="view_chronicles"))
     builder.row(InlineKeyboardButton(text="🏦 Temir Bank boshqaruvi", callback_data="admin_iron_bank"))
+    builder.row(InlineKeyboardButton(text="⏸️ O'yinni to'xtatish", callback_data="admin_pause_game"))
     return builder.as_markup()
 
 
