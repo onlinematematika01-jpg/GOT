@@ -524,3 +524,102 @@ async def get_loan(loan_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
         return await conn.fetchrow("SELECT * FROM loans WHERE id=$1", loan_id)
+
+
+# ── War queries ───────────────────────────────────────────────────────────────
+
+async def create_war(attacker_id: int, defender_id: int, starts_at) -> dict:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """INSERT INTO wars (attacker_id, defender_id, status, starts_at)
+               VALUES ($1, $2, 'pending', $3) RETURNING *""",
+            attacker_id, defender_id, starts_at
+        )
+
+
+async def get_war(war_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow("SELECT * FROM wars WHERE id=$1", war_id)
+
+
+async def get_active_war(kingdom_id: int):
+    """Qirollikning joriy urushi"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """SELECT * FROM wars
+               WHERE (attacker_id=$1 OR defender_id=$1)
+               AND status NOT IN ('finished')
+               ORDER BY declared_at DESC LIMIT 1""",
+            kingdom_id
+        )
+
+
+async def update_war(war_id: int, **kwargs):
+    pool = await get_pool()
+    cols = ", ".join(f"{k}=${i+2}" for i, k in enumerate(kwargs))
+    vals = list(kwargs.values())
+    async with pool.acquire() as conn:
+        await conn.execute(
+            f"UPDATE wars SET {cols} WHERE id=$1", war_id, *vals
+        )
+
+
+async def get_pending_wars():
+    """Boshlanishi kerak bo'lgan urushlar"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        from datetime import datetime
+        return await conn.fetch(
+            """SELECT * FROM wars
+               WHERE status='pending' AND starts_at <= $1""",
+            datetime.utcnow()
+        )
+
+
+async def add_war_support(war_id: int, from_type: str, from_id: int,
+                          to_kingdom: int, gold: int = 0,
+                          soldiers: int = 0, scorpions: int = 0):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO war_support
+               (war_id, from_type, from_id, to_kingdom, gold, soldiers, scorpions)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+            war_id, from_type, from_id, to_kingdom, gold, soldiers, scorpions
+        )
+
+
+async def get_war_support(war_id: int, to_kingdom: int):
+    """Biror qirollikka kelgan jami yordam"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """SELECT
+               COALESCE(SUM(gold),0) as total_gold,
+               COALESCE(SUM(soldiers),0) as total_soldiers,
+               COALESCE(SUM(scorpions),0) as total_scorpions
+               FROM war_support
+               WHERE war_id=$1 AND to_kingdom=$2""",
+            war_id, to_kingdom
+        )
+
+
+async def create_tribute(war_id: int, from_kingdom: int, to_kingdom: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO tributes (war_id, from_kingdom, to_kingdom)
+               VALUES ($1, $2, $3)""",
+            war_id, from_kingdom, to_kingdom
+        )
+
+
+async def get_active_tributes():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT * FROM tributes WHERE active=TRUE"
+        )
