@@ -155,13 +155,12 @@ def member_main_kb() -> InlineKeyboardMarkup:
 
 def market_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🗡️ Valeriya po'lati (70💰)", callback_data="buy_valyrian"))
-    builder.row(InlineKeyboardButton(text="🔥 Yovvoyi olov (65💰)", callback_data="buy_wildfire"))
     builder.row(
         InlineKeyboardButton(text="🐉 Ajdar A (150💰)", callback_data="buy_dragon_a"),
         InlineKeyboardButton(text="🐉 Ajdar B (100💰)", callback_data="buy_dragon_b"),
         InlineKeyboardButton(text="🐉 Ajdar C (60💰)", callback_data="buy_dragon_c"),
     )
+    builder.row(InlineKeyboardButton(text="🦂 Chayon (25💰)", callback_data="buy_scorpion"))
     builder.row(InlineKeyboardButton(text="💱 Oltin→Qo'shin", callback_data="exchange_gold"))
     builder.row(InlineKeyboardButton(text="🗡️ Suiqasd (Fitna)", callback_data="assassination"))
     builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="main_menu"))
