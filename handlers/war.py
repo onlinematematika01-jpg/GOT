@@ -782,3 +782,200 @@ async def process_weekly_tributes(bot: Bot):
             f"{loser['name']} → {winner['name']}: "
             f"{tribute_gold}💰 + {tribute_soldiers}⚔️"
         )
+
+
+# ── Urush holati (Qirol paneli) ───────────────────────────────────────────────
+
+@router.callback_query(F.data == "king_war_status")
+async def cb_king_war_status(call: CallbackQuery, db_user: dict):
+    if db_user.get("role") != "king":
+        await call.answer("👑 Faqat Qirollar uchun!")
+        return
+    kingdom = await get_kingdom_by_king(call.from_user.id)
+    war = await get_active_war(kingdom["id"])
+    if not war:
+        await call.message.edit_text(
+            "☮️ Hozircha faol urush yo'q.",
+            reply_markup=back_kb("king_main")
+        )
+        return
+    attacker = await get_kingdom(war["attacker_id"])
+    defender = await get_kingdom(war["defender_id"])
+    is_attacker = war["attacker_id"] == kingdom["id"]
+    enemy = defender if is_attacker else attacker
+
+    from datetime import timezone
+    starts_at = war["starts_at"]
+    if starts_at:
+        starts_uz = starts_at + timedelta(hours=5)
+        time_text = starts_uz.strftime("%d.%m %H:%M")
+    else:
+        time_text = "?"
+
+    status_labels = {
+        "pending": "⏳ Kutilmoqda",
+        "round1": "⚔️ 1-Raund",
+        "round2": "⚔️ 2-Raund",
+        "round3": "⚔️ 3-Raund",
+        "finished": "✅ Tugagan"
+    }
+
+    text = (
+        f"⚔️ <b>Urush Holati</b>\n\n"
+        f"{'🗡️ Hujum' if is_attacker else '🛡️ Mudofaa'}\n"
+        f"Dushman: {enemy['sigil']} <b>{enemy['name']}</b>\n"
+        f"Holat: {status_labels.get(war['status'], war['status'])}\n"
+        f"Boshlanish: {time_text}\n\n"
+    )
+
+    support = await get_war_support(war["id"], kingdom["id"])
+    if support:
+        text += (
+            f"📦 Kelgan yordam:\n"
+            f"💰 {support['total_gold']} oltin\n"
+            f"⚔️ {support['total_soldiers']} askar\n"
+            f"🦂 {support['total_scorpions']} chayon"
+        )
+
+    builder = InlineKeyboardBuilder()
+    if war["status"] == "pending" and not is_attacker:
+        builder.row(
+            InlineKeyboardButton(text="⚔️ Qabul qilish", callback_data=f"war_accept_{war['id']}"),
+            InlineKeyboardButton(text="🏳️ Taslim bo'lish", callback_data=f"war_surrender_{war['id']}")
+        )
+        builder.row(InlineKeyboardButton(
+            text="📨 Yordam so'rash",
+            callback_data=f"war_request_help_{war['id']}"
+        ))
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="king_main"))
+    await call.message.edit_text(text, reply_markup=builder.as_markup())
+
+
+# ── Lord urushga yordam (vassal paneli) ───────────────────────────────────────
+
+@router.callback_query(F.data == "lord_war_support")
+async def cb_lord_war_support(call: CallbackQuery, db_user: dict):
+    if db_user.get("role") != "lord":
+        await call.answer("🛡️ Faqat Lordlar uchun!")
+        return
+    from database.queries import get_vassal_by_lord
+    vassal = await get_vassal_by_lord(call.from_user.id)
+    if not vassal:
+        await call.answer("❌ Vassal topilmadi!")
+        return
+    war = await get_active_war(vassal["kingdom_id"])
+    if not war:
+        await call.message.edit_text(
+            "☮️ Hozircha faol urush yo'q.",
+            reply_markup=back_kb("lord_main")
+        )
+        return
+
+    kingdom = await get_kingdom(vassal["kingdom_id"])
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="💰 Oltin yuborish", callback_data=f"vsupport_gold_{war['id']}"),
+        InlineKeyboardButton(text="⚔️ Askar yuborish", callback_data=f"vsupport_soldiers_{war['id']}"),
+    )
+    builder.row(InlineKeyboardButton(
+        text="🦂 Chayon yuborish",
+        callback_data=f"vsupport_scorpions_{war['id']}"
+    ))
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="lord_main"))
+
+    attacker = await get_kingdom(war["attacker_id"])
+    defender = await get_kingdom(war["defender_id"])
+    enemy = defender if war["attacker_id"] == vassal["kingdom_id"] else attacker
+
+    await call.message.edit_text(
+        f"⚔️ <b>{kingdom['sigil']} {kingdom['name']}</b> urushda!\n\n"
+        f"Dushman: {enemy['sigil']} <b>{enemy['name']}</b>\n\n"
+        f"🛡️ Oilangiz resurslari:\n"
+        f"💰 {vassal['gold']} oltin | ⚔️ {vassal['soldiers']} askar\n\n"
+        f"Nima yuborasiz?",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("vsupport_gold_"))
+async def cb_vsupport_gold(call: CallbackQuery, state: FSMContext, db_user: dict):
+    war_id = int(call.data.split("_")[-1])
+    from database.queries import get_vassal_by_lord
+    vassal = await get_vassal_by_lord(call.from_user.id)
+    await state.update_data(
+        vassal_war_id=war_id,
+        vassal_id=vassal["id"],
+        vsupport_type="gold",
+        kingdom_id=vassal["kingdom_id"]
+    )
+    await state.set_state(WarStates.waiting_support_gold)
+    await call.message.edit_text(
+        f"💰 Nechta oltin yuborasiz?\n(Oilada: {vassal['gold']} oltin)",
+        reply_markup=back_kb("lord_war_support")
+    )
+
+
+@router.callback_query(F.data.startswith("vsupport_soldiers_"))
+async def cb_vsupport_soldiers(call: CallbackQuery, state: FSMContext, db_user: dict):
+    war_id = int(call.data.split("_")[-1])
+    from database.queries import get_vassal_by_lord
+    vassal = await get_vassal_by_lord(call.from_user.id)
+    await state.update_data(
+        vassal_war_id=war_id,
+        vassal_id=vassal["id"],
+        vsupport_type="soldiers",
+        kingdom_id=vassal["kingdom_id"]
+    )
+    await state.set_state(WarStates.waiting_support_soldiers)
+    await call.message.edit_text(
+        f"⚔️ Nechta askar yuborasiz?\n(Oilada: {vassal['soldiers']} askar)",
+        reply_markup=back_kb("lord_war_support")
+    )
+
+
+@router.callback_query(F.data.startswith("vsupport_scorpions_"))
+async def cb_vsupport_scorpions(call: CallbackQuery, state: FSMContext, db_user: dict):
+    war_id = int(call.data.split("_")[-1])
+    from database.queries import get_vassal_by_lord
+    vassal = await get_vassal_by_lord(call.from_user.id)
+    # Chayonlarni artefaktlardan hisoblash
+    arts = await get_artifacts("vassal", vassal["id"])
+    scorpions = sum(1 for a in arts if "Chayon" in a["artifact"])
+    await state.update_data(
+        vassal_war_id=war_id,
+        vassal_id=vassal["id"],
+        vsupport_type="scorpions",
+        kingdom_id=vassal["kingdom_id"],
+        max_scorpions=scorpions
+    )
+    await state.set_state(WarStates.waiting_support_scorpions)
+    await call.message.edit_text(
+        f"🦂 Nechta chayon yuborasiz?\n(Oilada: {scorpions} chayon)",
+        reply_markup=back_kb("lord_war_support")
+    )
+
+
+@router.message(WarStates.waiting_support_scorpions)
+async def msg_vassal_scorpions(message: Message, state: FSMContext, db_user: dict):
+    try:
+        amount = int(message.text.strip())
+        if amount <= 0: raise ValueError
+    except ValueError:
+        await message.answer("❌ Musbat son kiriting.")
+        return
+    data = await state.get_data()
+    max_sc = data.get("max_scorpions", 0)
+    if amount > max_sc:
+        await message.answer(f"❌ Yetarli chayon yo'q! Sizda: {max_sc}")
+        return
+    kingdom = await get_kingdom(data["kingdom_id"])
+    await add_war_support(
+        data["vassal_war_id"], "vassal", data["vassal_id"],
+        data["kingdom_id"], scorpions=amount
+    )
+    await state.clear()
+    from keyboards.kb import lord_main_kb
+    await message.answer(
+        f"✅ {amount} ta 🦂 chayon {kingdom['sigil']} {kingdom['name']}ga yuborildi!",
+        reply_markup=lord_main_kb()
+    )
