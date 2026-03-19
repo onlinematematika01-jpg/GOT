@@ -668,3 +668,24 @@ async def get_active_tributes():
         return await conn.fetch(
             "SELECT * FROM tributes WHERE active=TRUE"
         )
+
+
+# ── Game settings ─────────────────────────────────────────────────────────────
+
+async def get_game_active() -> bool:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT value FROM game_settings WHERE key='game_active'"
+        )
+        return row["value"] == "true" if row else True
+
+
+async def set_game_active(active: bool):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO game_settings (key, value) VALUES ('game_active', $1)
+               ON CONFLICT (key) DO UPDATE SET value=$1""",
+            "true" if active else "false"
+        )
