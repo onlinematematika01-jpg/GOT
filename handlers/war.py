@@ -490,9 +490,9 @@ async def _run_war_rounds(bot: Bot, war_id: int):
     attacker = await get_kingdom(war["attacker_id"])
     defender = await get_kingdom(war["defender_id"])
 
-    # Boshlang'ich kuchlar
-    a_state = await _get_kingdom_forces(attacker)
-    d_state = await _get_kingdom_forces(defender)
+    # Boshlang'ich kuchlar (war_support ham hisobga olinadi)
+    a_state = await _get_kingdom_forces(attacker, war_id)
+    d_state = await _get_kingdom_forces(defender, war_id)
 
     all_members = (
         await get_kingdom_members(attacker["id"]) +
@@ -552,7 +552,9 @@ async def _run_war_rounds(bot: Bot, war_id: int):
     # ── RAUND 3: Yakuniy jang ─────────────────────────────────────────────────
     r3_log, a_power, d_power = await _round3_final(a_state, d_state)
 
-    # G'olib aniqlash
+    # G'olib aniqlash (DB dan yangi ma'lumot)
+    attacker = await get_kingdom(war["attacker_id"])
+    defender = await get_kingdom(war["defender_id"])
     if a_power > d_power:
         winner, loser = attacker, defender
         winner_state, loser_state = a_state, d_state
@@ -577,9 +579,10 @@ async def _run_war_rounds(bot: Bot, war_id: int):
     )
 
     # Yutqazgan Qirolni ag'darish
-    if loser["king_id"]:
+    loser_fresh = await get_kingdom(loser["id"])
+    if loser_fresh and loser_fresh["king_id"]:
         from database.queries import update_user
-        await update_user(loser["king_id"], role="member")
+        await update_user(loser_fresh["king_id"], role="member")
         await update_kingdom(loser["id"], king_id=None)
 
     await update_war(war_id, status="finished",
@@ -603,11 +606,13 @@ async def _run_war_rounds(bot: Bot, war_id: int):
         "war_end", f"⚔️ Urush yakuni!",
         f"🏆 {winner['name']} g'alaba! {loser['name']} yutqazdi. "
         f"{gold_transfer}💰 + {soldiers_transfer}⚔️ o'tkazildi.",
+        bot=bot
     )
 
 
-async def _get_kingdom_forces(kingdom: dict) -> dict:
-    """Qirollikning barcha kuchlarini hisoblash"""
+async def _get_kingdom_forces(kingdom: dict, war_id: int = None) -> dict:
+    """Qirollikning barcha kuchlarini hisoblash (war_support ham qo'shiladi)"""
+    # Qirollik artefaktlari
     arts = await get_artifacts("kingdom", kingdom["id"])
     da = db = dc = scorpions = 0
     for a in arts:
@@ -615,12 +620,35 @@ async def _get_kingdom_forces(kingdom: dict) -> dict:
             if a["tier"] == "A": da += 1
             elif a["tier"] == "B": db += 1
             elif a["tier"] == "C": dc += 1
-        elif "Chayon" in a["artifact"]: scorpions += 1
+        elif "Chayon" in a["artifact"]:
+            scorpions += 1
+
+    # Vassal artefaktlarini ham hisoblash
+    vassals = await get_kingdom_vassals(kingdom["id"])
+    for v in vassals:
+        v_arts = await get_artifacts("vassal", v["id"])
+        for a in v_arts:
+            if a["artifact"] == "🐉 Ajdar":
+                if a["tier"] == "A": da += 1
+                elif a["tier"] == "B": db += 1
+                elif a["tier"] == "C": dc += 1
+            elif "Chayon" in a["artifact"]:
+                scorpions += 1
+
+    soldiers = kingdom["soldiers"]
+
+    # War support dan qo'shimcha resurslar
+    if war_id:
+        support = await get_war_support(war_id, kingdom["id"])
+        if support:
+            soldiers += support["total_soldiers"] or 0
+            scorpions += support["total_scorpions"] or 0
+
     return {
         "da": da, "db": db, "dc": dc,
-        "soldiers": kingdom["soldiers"],
+        "soldiers": soldiers,
         "scorpions": scorpions,
-        "skipped_a": 0,  # skip raund
+        "skipped_a": 0,
     }
 
 
