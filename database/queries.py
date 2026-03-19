@@ -250,7 +250,8 @@ async def update_vassal(vassal_id: int, **kwargs):
 # ── Chronicle queries ─────────────────────────────────────────────────────────
 
 async def add_chronicle(event_type: str, title: str, description: str,
-                        actor_id: int = None, target_id: int = None):
+                        actor_id: int = None, target_id: int = None,
+                        bot=None):
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
@@ -258,6 +259,50 @@ async def add_chronicle(event_type: str, title: str, description: str,
                VALUES ($1, $2, $3, $4, $5)""",
             event_type, title, description, actor_id, target_id
         )
+
+    # Kanalga post yuborish
+    if bot is not None:
+        await _post_to_channel(bot, event_type, title, description)
+
+
+async def _post_to_channel(bot, event_type: str, title: str, description: str):
+    """Voqeani kanal ga post qilish"""
+    from config import CHRONICLE_CHANNEL_ID
+
+    event_emojis = {
+        "war":                "⚔️",
+        "war_end":            "🏆",
+        "assassination_success": "💀",
+        "assassination_attempt": "🗡️",
+        "coronation":         "👑",
+        "election":           "🗳️",
+        "alliance":           "🤝",
+        "loan":               "🏦",
+        "purchase":           "💰",
+        "gm_event":           "🔮",
+        "defection":          "🚀",
+        "punishment":         "⚔️",
+        "vassal_created":     "🛡️",
+        "tribute":            "💸",
+        "system":             "⚙️",
+    }
+
+    # Kanalga bormaydigan voqealar
+    skip_types = {"join", "purchase"}
+    if event_type in skip_types:
+        return
+
+    emoji = event_emojis.get(event_type, "📜")
+    text = (
+        f"{emoji} <b>{title}</b>\n\n"
+        f"{description}\n\n"
+        f"<i>📜 Taxtlar O\'yini Xronikasi</i>"
+    )
+    try:
+        await bot.send_message(CHRONICLE_CHANNEL_ID, text)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Chronicle channel error: {e}")
 
 
 async def get_chronicles(limit: int = 20):
