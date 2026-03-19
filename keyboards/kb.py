@@ -61,6 +61,7 @@ def king_main_kb() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="⚔️ Jazo berish", callback_data="king_punish"))
     builder.row(InlineKeyboardButton(text="🤝 Diplomatiya", callback_data="king_diplomacy"))
     builder.row(InlineKeyboardButton(text="📊 Qirollik holati", callback_data="king_status"))
+    builder.row(InlineKeyboardButton(text="⚔️ Urush holati", callback_data="king_war_status"))
     builder.row(InlineKeyboardButton(text="🏪 Iron Bank", callback_data="market_main"))
     return builder.as_markup()
 
@@ -124,6 +125,7 @@ def lord_main_kb() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="🏠 Oila holati", callback_data="lord_family_status"))
     builder.row(InlineKeyboardButton(text="🗳️ Saylov o'tkazish", callback_data="lord_election"))
     builder.row(InlineKeyboardButton(text="🚀 Panoh so'rash", callback_data="lord_defect"))
+    builder.row(InlineKeyboardButton(text="⚔️ Urushga yordam", callback_data="lord_war_support"))
     builder.row(InlineKeyboardButton(text="🏪 Iron Bank", callback_data="market_main"))
     return builder.as_markup()
 
@@ -195,6 +197,7 @@ def dynamic_market_kb(prices: dict) -> InlineKeyboardMarkup:
         "dragon_a":  "buy_dragon_a",
         "dragon_b":  "buy_dragon_b",
         "dragon_c":  "buy_dragon_c",
+        "scorpion":  "buy_scorpion",
     }
     for item, cb in items.items():
         info = prices.get(item, {})
