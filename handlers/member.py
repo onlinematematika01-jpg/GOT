@@ -248,6 +248,12 @@ async def cb_buy_dragon_c(call: CallbackQuery, db_user: dict):
     await _buy(call, db_user, "🐉 Ajdar", await get_price("dragon_c"), "C")
 
 
+@router.callback_query(F.data == "buy_scorpion")
+async def cb_buy_scorpion(call: CallbackQuery, db_user: dict):
+    price = await get_price("scorpion")
+    await _buy(call, db_user, "🦂 Chayon", price)
+
+
 # ── Gold → Soldier exchange ───────────────────────────────────────────────────
 
 @router.callback_query(F.data == "exchange_gold")
