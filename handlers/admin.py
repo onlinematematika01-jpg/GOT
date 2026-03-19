@@ -512,7 +512,7 @@ async def cb_do_delete(call: CallbackQuery):
     from database.db import get_pool
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute("UPDATE users SET vassal_id=NULL, role='member' WHERE vassal_id=$1", vassal_id)
+        await conn.execute("UPDATE users SET vassal_id=NULL, kingdom_id=NULL, role='member' WHERE vassal_id=$1", vassal_id)
         await conn.execute("DELETE FROM vassals WHERE id=$1", vassal_id)
     await add_chronicle("system", "Vassal o'chirildi", f"{name} oilasi admin tomonidan o'chirildi", actor_id=call.from_user.id)
     await call.message.edit_text(f"✅ <b>{name}</b> oilasi muvaffaqiyatli o'chirildi!", reply_markup=admin_main_kb())
