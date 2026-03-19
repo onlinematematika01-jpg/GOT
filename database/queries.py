@@ -352,3 +352,95 @@ async def get_artifacts(owner_type: str, owner_id: int):
             "SELECT * FROM artifacts WHERE owner_type=$1 AND owner_id=$2",
             owner_type, owner_id
         )
+
+
+# ── Assassination queries ─────────────────────────────────────────────────────
+
+async def add_assassination_hit(target_id: int, attacker_id: int, attacker_role: str):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO assassination_hits (target_id, attacker_id, attacker_role)
+               VALUES ($1, $2, $3)""",
+            target_id, attacker_id, attacker_role
+        )
+
+
+async def count_assassination_hits(target_id: int) -> int:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT COUNT(*) FROM assassination_hits WHERE target_id = $1",
+            target_id
+        )
+
+
+async def count_lord_hits(target_id: int) -> int:
+    """Count hits from Lords only (for king death threshold)"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            """SELECT COUNT(*) FROM assassination_hits
+               WHERE target_id = $1 AND attacker_role = 'lord'""",
+            target_id
+        )
+
+
+async def count_king_hits(target_id: int) -> int:
+    """Count hits from Kings only (for Targaryen death threshold)"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            """SELECT COUNT(*) FROM assassination_hits
+               WHERE target_id = $1 AND attacker_role = 'king'""",
+            target_id
+        )
+
+
+async def get_assassination_attackers(target_id: int):
+    """Get list of attackers for a target"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            """SELECT attacker_id, attacker_role, COUNT(*) as hits
+               FROM assassination_hits WHERE target_id = $1
+               GROUP BY attacker_id, attacker_role
+               ORDER BY hits DESC""",
+            target_id
+        )
+
+
+async def reset_assassination_hits(target_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM assassination_hits WHERE target_id = $1",
+            target_id
+        )
+
+
+async def get_all_lords():
+    """Get all users with lord role"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            """SELECT u.*, v.name as vassal_name, k.name as kingdom_name, k.sigil
+               FROM users u
+               LEFT JOIN vassals v ON u.vassal_id = v.id
+               LEFT JOIN kingdoms k ON u.kingdom_id = k.id
+               WHERE u.role = 'lord'
+               ORDER BY k.name, v.name"""
+        )
+
+
+async def get_all_kings():
+    """Get all users with king role"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            """SELECT u.*, k.name as kingdom_name, k.sigil
+               FROM users u
+               LEFT JOIN kingdoms k ON u.kingdom_id = k.id
+               WHERE u.role = 'king'
+               ORDER BY k.name"""
+        )
