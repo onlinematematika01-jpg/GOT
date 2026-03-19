@@ -31,8 +31,8 @@ HELP_SECTIONS = {
         "text": (
             "👥 <b>O'YIN ROLLARI</b>\n\n"
             "🔮 <b>Uch Ko'zli Qarg'a (Admin)</b>\n"
-            "O'yin xudosi. Qirolliklarni yaratadi, "
-            "Qirollarni tayinlaydi, o'yinni boshqaradi.\n\n"
+            "O'yin kuzatuvchisi va boshqaruvchisi. "
+            "Qirolliklarni qo'shadi, Qirollarni tayinlaydi.\n\n"
             "👑 <b>Qirol</b>\n"
             "Yetti qirollikdan birining rahbari.\n"
             "Admin tomonidan tayinlanadi.\n"
