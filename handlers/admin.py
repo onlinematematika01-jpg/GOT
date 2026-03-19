@@ -40,6 +40,11 @@ class AdminStates(StatesGroup):
     waiting_edit_res_kingdom  = State()
     waiting_edit_res_type     = State()
     waiting_edit_res_amount   = State()
+    # Member ko'chirish
+    waiting_move_user_id      = State()
+    waiting_move_target_type  = State()
+    waiting_move_kingdom      = State()
+    waiting_move_vassal       = State()
 
 
 # ── /admin command ────────────────────────────────────────────────────────────
@@ -561,3 +566,199 @@ async def cb_game_status(call: CallbackQuery):
         text += f"{k['sigil']} <b>{k['name']}</b> {king_mark} | 👥{len(members)} 🛡️{len(kvassals)}\n"
         text += f"  💰{k['gold']} | ⚔️{k['soldiers']} | 🐉{k['dragons']}\n"
     await call.message.edit_text(text, reply_markup=admin_main_kb())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  A'ZONI KO'CHIRISH (QIROLLIK YOKI VASSALGA)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.callback_query(F.data == "admin_move_user")
+async def cb_move_user_start(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
+        return
+    await state.set_state(AdminStates.waiting_move_user_id)
+    await call.message.edit_text(
+        "🔀 <b>A'zoni ko'chirish</b>\n\n"
+        "Ko'chirmoqchi bo'lgan foydalanuvchining Telegram ID sini yuboring:",
+        reply_markup=back_kb("admin_main")
+    )
+
+
+@router.message(AdminStates.waiting_move_user_id)
+async def msg_move_user_id(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        user_id = int(message.text.strip())
+    except ValueError:
+        await message.answer("❌ Noto'g'ri ID. Faqat raqam kiriting.")
+        return
+
+    target = await get_user(user_id)
+    if not target:
+        await message.answer("❌ Foydalanuvchi topilmadi (avval /start bosishi kerak).")
+        return
+    if target["role"] in ("admin",):
+        await message.answer("❌ Admin boshqa joyga ko'chirilmaydi!")
+        return
+
+    await state.update_data(move_user_id=user_id)
+    await state.set_state(AdminStates.waiting_move_target_type)
+
+    name = target["full_name"] or target["username"] or str(user_id)
+    role_emoji = {"king": "👑", "lord": "🛡️", "member": "⚔️"}.get(target["role"], "⚔️")
+
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🏰 Qirollikka ko'chirish", callback_data="move_to_kingdom"))
+    builder.row(InlineKeyboardButton(text="🛡️ Vassalga ko'chirish", callback_data="move_to_vassal"))
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_move_user"))
+
+    await message.answer(
+        f"👤 <b>{name}</b> {role_emoji}\n\n"
+        f"Hozirgi joyi:\n"
+        f"🏰 Kingdom ID: {target.get('kingdom_id', 'Yoq')}\n"
+        f"🛡️ Vassal ID: {target.get('vassal_id', 'Yoq')}\n\n"
+        f"Qayerga ko'chirasiz?",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data == "move_to_kingdom", AdminStates.waiting_move_target_type)
+async def cb_move_to_kingdom(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
+        return
+    kingdoms = await get_all_kingdoms()
+    if not kingdoms:
+        await call.message.edit_text("❌ Qirolliklar yo'q!", reply_markup=back_kb("admin_main"))
+        return
+    await state.set_state(AdminStates.waiting_move_kingdom)
+    builder = InlineKeyboardBuilder()
+    for k in kingdoms:
+        members = await get_kingdom_members(k["id"])
+        builder.row(InlineKeyboardButton(
+            text=f"{k['sigil']} {k['name']} ({len(members)} kishi)",
+            callback_data=f"move_kingdom_{k['id']}"
+        ))
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_move_user"))
+    await call.message.edit_text(
+        "🏰 Qaysi qirollikka ko'chirasiz?",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("move_kingdom_"), AdminStates.waiting_move_kingdom)
+async def cb_do_move_kingdom(call: CallbackQuery, state: FSMContext, bot: Bot):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
+        return
+    kingdom_id = int(call.data.split("_")[-1])
+    data = await state.get_data()
+    user_id = data["move_user_id"]
+
+    target = await get_user(user_id)
+    kingdom = await get_kingdom(kingdom_id)
+
+    # Eski lord lavozimini olib tashlash
+    if target["role"] == "lord" and target.get("vassal_id"):
+        await update_vassal(target["vassal_id"], lord_id=None)
+
+    await update_user(user_id,
+        kingdom_id=kingdom_id,
+        vassal_id=None,
+        role="member"
+    )
+    await state.clear()
+
+    name = target["full_name"] or str(user_id)
+    try:
+        await bot.send_message(
+            user_id,
+            f"🔀 <b>Admin sizni ko'chirdi!</b>\n\n"
+            f"Yangi qirolligingiz: {kingdom['sigil']} <b>{kingdom['name']}</b>"
+        )
+    except Exception:
+        pass
+
+    await add_chronicle(
+        "system", "A'zo ko'chirildi",
+        f"{name} → {kingdom['sigil']} {kingdom['name']} qirolligiga",
+        actor_id=call.from_user.id
+    )
+    await call.message.edit_text(
+        f"✅ <b>{name}</b> {kingdom['sigil']} <b>{kingdom['name']}</b> qirolligiga ko'chirildi!",
+        reply_markup=admin_main_kb()
+    )
+
+
+@router.callback_query(F.data == "move_to_vassal", AdminStates.waiting_move_target_type)
+async def cb_move_to_vassal(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
+        return
+    vassals = await get_all_vassals()
+    if not vassals:
+        await call.message.edit_text("❌ Vassal oilalar yo'q!", reply_markup=back_kb("admin_main"))
+        return
+    await state.set_state(AdminStates.waiting_move_vassal)
+    builder = InlineKeyboardBuilder()
+    for v in vassals:
+        kingdom = await get_kingdom(v["kingdom_id"])
+        k_name = f"{kingdom['sigil']} {kingdom['name']}" if kingdom else "?"
+        members = await get_vassal_members(v["id"])
+        builder.row(InlineKeyboardButton(
+            text=f"🛡️ {v['name']} • {k_name} ({len(members)} kishi)",
+            callback_data=f"move_vassal_{v['id']}"
+        ))
+    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_move_user"))
+    await call.message.edit_text(
+        "🛡️ Qaysi vassal oilaga ko'chirasiz?",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("move_vassal_"), AdminStates.waiting_move_vassal)
+async def cb_do_move_vassal(call: CallbackQuery, state: FSMContext, bot: Bot):
+    if not is_admin(call.from_user.id):
+        await call.answer("🚫 Ruxsat yo'q!")
+        return
+    vassal_id = int(call.data.split("_")[-1])
+    data = await state.get_data()
+    user_id = data["move_user_id"]
+
+    target = await get_user(user_id)
+    vassal = await get_vassal(vassal_id)
+    kingdom = await get_kingdom(vassal["kingdom_id"])
+
+    # Eski lord lavozimini olib tashlash
+    if target["role"] == "lord" and target.get("vassal_id"):
+        await update_vassal(target["vassal_id"], lord_id=None)
+
+    await update_user(user_id,
+        kingdom_id=vassal["kingdom_id"],
+        vassal_id=vassal_id,
+        role="member"
+    )
+    await state.clear()
+
+    name = target["full_name"] or str(user_id)
+    try:
+        await bot.send_message(
+            user_id,
+            f"🔀 <b>Admin sizni ko'chirdi!</b>\n\n"
+            f"Yangi oilangiz: 🛡️ <b>{vassal['name']}</b>\n"
+            f"Qirollik: {kingdom['sigil']} <b>{kingdom['name']}</b>"
+        )
+    except Exception:
+        pass
+
+    await add_chronicle(
+        "system", "A'zo ko'chirildi",
+        f"{name} → {vassal['name']} oilasiga ({kingdom['name']})",
+        actor_id=call.from_user.id
+    )
+    await call.message.edit_text(
+        f"✅ <b>{name}</b> 🛡️ <b>{vassal['name']}</b> oilasiga ko'chirildi!",
+        reply_markup=admin_main_kb()
+    )
