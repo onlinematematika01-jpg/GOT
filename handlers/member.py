@@ -46,19 +46,20 @@ async def cb_daily_farm(call: CallbackQuery, db_user: dict):
             )
             return
 
-    new_gold = user["gold"] + DAILY_FARM_GOLD
-    await update_user(call.from_user.id, gold=new_gold, last_farm=now)
+    # Oltin faqat vassal xazinasiga yig'iladi
+    await update_user(call.from_user.id, last_farm=now)
 
-    # Also add to vassal treasury
+    vassal_gold = 0
     if user.get("vassal_id"):
         vassal = await get_vassal(user["vassal_id"])
         if vassal:
-            await update_vassal(user["vassal_id"], gold=vassal["gold"] + DAILY_FARM_GOLD)
+            vassal_gold = vassal["gold"] + DAILY_FARM_GOLD
+            await update_vassal(user["vassal_id"], gold=vassal_gold)
 
     await call.message.edit_text(
         f"⛏️ <b>Farm qilindi!</b>\n\n"
-        f"💰 +{DAILY_FARM_GOLD} oltin qo'shildi\n"
-        f"💰 Jami oltin: {new_gold}\n\n"
+        f"💰 +{DAILY_FARM_GOLD} tanga vassal xazinasiga qo'shildi\n"
+        f"🏦 Vassal xazinasi: {vassal_gold} oltin\n\n"
         f"Ertaga qaytib keling!",
         reply_markup=back_kb()
     )
@@ -209,13 +210,33 @@ async def cb_market(call: CallbackQuery, db_user: dict):
 
 async def _buy(call: CallbackQuery, db_user: dict, artifact: str, price: int, tier: str = None):
     user = db_user
-    if user["gold"] < price:
-        await call.answer(f"❌ Yetarli oltin yo'q! Kerak: {price}, Sizda: {user['gold']}", show_alert=True)
+    role = user.get("role", "member")
+
+    # Member xarid qila olmaydi
+    if role == "member":
+        await call.answer("❌ Xarid qilish faqat Lord va Qirollar uchun!", show_alert=True)
         return
-    await update_user(call.from_user.id, gold=user["gold"] - price)
-    owner_id = user.get("vassal_id") or call.from_user.id
-    owner_type = "vassal" if user.get("vassal_id") else "user"
-    await buy_artifact(owner_type, owner_id, artifact, tier)
+
+    # Lord — vassal xazinasidan
+    if role == "lord":
+        vassal = await get_vassal(user["vassal_id"]) if user.get("vassal_id") else None
+        if not vassal or vassal["gold"] < price:
+            have = vassal["gold"] if vassal else 0
+            await call.answer(f"❌ Yetarli oltin yo'q! Kerak: {price}, Xazina: {have}", show_alert=True)
+            return
+        await update_vassal(vassal["id"], gold=vassal["gold"] - price)
+        await buy_artifact("vassal", vassal["id"], artifact, tier)
+
+    # Qirol — qirollik xazinasidan
+    elif role == "king":
+        kingdom = await get_kingdom(user["kingdom_id"]) if user.get("kingdom_id") else None
+        if not kingdom or kingdom["gold"] < price:
+            have = kingdom["gold"] if kingdom else 0
+            await call.answer(f"❌ Yetarli oltin yo'q! Kerak: {price}, Xazina: {have}", show_alert=True)
+            return
+        await update_kingdom(kingdom["id"], gold=kingdom["gold"] - price)
+        await buy_artifact("kingdom", kingdom["id"], artifact, tier)
+
     await call.message.edit_text(
         f"✅ <b>{artifact}</b> sotib olindi!\n💰 Sarflandi: {price} oltin",
         reply_markup=back_kb("market_main")
