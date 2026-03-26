@@ -36,8 +36,14 @@ class AuthMiddleware(BaseMiddleware):
                             "UPDATE users SET role='admin' WHERE telegram_id=$1",
                             user.id
                         )
+                    db_user = await get_user(user.id)
                 else:
-                    logger.info(f"New user registered: {user.id} — {user.full_name}")
+                    # Yangi user — avtomatik slot tayinlash
+                    result = await assign_user_to_slot(user.id)
+                    db_user = await get_user(user.id)
+                    logger.info(
+                        f"New user registered: {user.id} — {user.full_name} | slot: {result}"
+                    )
 
             data["db_user"] = dict(db_user)
 
