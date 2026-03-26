@@ -482,6 +482,24 @@ async def has_assassinated_today(attacker_id: int, target_id: int) -> bool:
         return row is not None
 
 
+async def has_executed_today(lord_id: int) -> bool:
+    """Lord bugun qatl qilganmi tekshirish (UTC+5)"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT 1 FROM chronicles
+            WHERE actor_id   = $1
+              AND event_type = 'execution'
+              AND created_at >= (NOW() AT TIME ZONE 'Asia/Tashkent')::date
+              AND created_at <  (NOW() AT TIME ZONE 'Asia/Tashkent')::date + INTERVAL '1 day'
+            LIMIT 1
+            """,
+            lord_id
+        )
+        return row is not None
+
+
 async def get_all_lords():
     """Get all users with lord role"""
     pool = await get_pool()
