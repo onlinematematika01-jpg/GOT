@@ -136,6 +136,7 @@ def lord_main_kb() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="🗳️ Saylov o'tkazish", callback_data="lord_election"))
     builder.row(InlineKeyboardButton(text="🚀 Panoh so'rash", callback_data="lord_defect"))
     builder.row(InlineKeyboardButton(text="⚔️ Urushga yordam", callback_data="lord_war_support"))
+    builder.row(InlineKeyboardButton(text="⚔️ A'zoni qatl etish", callback_data="lord_execute_member"))
     builder.row(InlineKeyboardButton(text="🗡️ Suiqasd (Fitna)", callback_data="assassination"))
     builder.row(InlineKeyboardButton(text="🏆 Global Reyting", callback_data="global_rating"))
     builder.row(InlineKeyboardButton(text="📜 Xronika", callback_data="view_chronicles"))
