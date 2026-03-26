@@ -7,7 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # ── Admin keyboards ───────────────────────────────────────────────────────────
 
-def admin_main_kb() -> InlineKeyboardMarkup:
+def admin_main_kb(game_active: bool = True) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🏰 Standart 7 qirollik yaratish", callback_data="admin_create_kingdoms"))
     builder.row(InlineKeyboardButton(text="⚙️ Qirolliklar boshqaruvi", callback_data="admin_manage_kingdoms"))
@@ -20,7 +20,11 @@ def admin_main_kb() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="📜 Xronika", callback_data="view_chronicles"))
     builder.row(InlineKeyboardButton(text="🏆 Global Reyting", callback_data="global_rating"))
     builder.row(InlineKeyboardButton(text="🏦 Temir Bank boshqaruvi", callback_data="admin_iron_bank"))
-    builder.row(InlineKeyboardButton(text="⏸️ O'yinni to'xtatish", callback_data="admin_pause_game"))
+    # Holat bo'yicha to'g'ri tugma
+    if game_active:
+        builder.row(InlineKeyboardButton(text="⏸️ O'yinni to'xtatish", callback_data="admin_pause_game"))
+    else:
+        builder.row(InlineKeyboardButton(text="▶️ O'yinni boshlash", callback_data="admin_resume_game"))
     return builder.as_markup()
 
 
