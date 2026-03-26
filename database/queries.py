@@ -464,6 +464,24 @@ async def reset_assassination_hits(target_id: int):
         )
 
 
+async def has_assassinated_today(attacker_id: int, target_id: int) -> bool:
+    """Bugun shu nishonga suiqasd qilganmi tekshirish (UTC+5)"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT 1 FROM assassination_hits
+            WHERE attacker_id = $1
+              AND target_id   = $2
+              AND created_at >= (NOW() AT TIME ZONE 'Asia/Tashkent')::date
+              AND created_at <  (NOW() AT TIME ZONE 'Asia/Tashkent')::date + INTERVAL '1 day'
+            LIMIT 1
+            """,
+            attacker_id, target_id
+        )
+        return row is not None
+
+
 async def get_all_lords():
     """Get all users with lord role"""
     pool = await get_pool()
