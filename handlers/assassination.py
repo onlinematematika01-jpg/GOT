@@ -296,7 +296,11 @@ async def _register_hit(bot, call, target, target_role, target_name,
                 f"🛡️ {lord_hits}/{KING_LORD_HITS} Lord"
             )
 
-    role_label = "👑 Qirol" if target_role == "king" else "🛡️ Lord"
+    role_label = {
+        "king":   "👑 Qirol",
+        "lord":   "🛡️ Lord",
+        "member": "⚔️ A'zo",
+    }.get(target_role, "⚔️ A'zo")
 
     # Nishonga xabar — suiqasdchi ismi oshkor
     try:
@@ -330,11 +334,16 @@ async def _register_hit(bot, call, target, target_role, target_name,
 async def _execute_death(bot, call, target, target_role, target_name,
                          attacker_name, attacker_role, death_reason,
                          total_hits, lord_hits, king_hits):
-    """Nishon o'ldi — lavozimdan tushiriladi."""
-    target_id = target["telegram_id"]
-    role_label = "👑 Qirol" if target_role == "king" else "🛡️ Lord"
+    """Nishon o'ldi — lavozimdan tushiriladi yoki boshqa qirollikka o'tkaziladi."""
+    target_id  = target["telegram_id"]
+    role_label = {
+        "king":   "👑 Qirol",
+        "lord":   "🛡️ Lord",
+        "member": "⚔️ A'zo",
+    }.get(target_role, "⚔️ A'zo")
 
-    # Lavozimni olib tashlash
+    transfer_text = ""
+
     if target_role == "lord":
         vassal = await get_vassal_by_lord(target_id)
         if vassal:
@@ -347,29 +356,82 @@ async def _execute_death(bot, call, target, target_role, target_name,
             await update_kingdom(kingdom["id"], king_id=None)
         await update_user(target_id, role="member")
 
-    # Suiqasd hisobini tozalash
+    elif target_role == "member":
+        # Qirol farmoni — boshqa qirollikka o'tkaziladi
+        from database.queries import get_all_vassals, get_vassal_members, get_all_kingdoms
+        from config import MAX_VASSAL_MEMBERS
+        attacker_kingdom_id = target.get("kingdom_id")
+
+        # Boshqa qirollikdagi bo'sh vassal topish
+        all_vassals = await get_all_vassals()
+        new_vassal  = None
+        for v in all_vassals:
+            if v["kingdom_id"] == attacker_kingdom_id:
+                continue
+            count = len(await get_vassal_members(v["id"]))
+            if count < MAX_VASSAL_MEMBERS:
+                new_vassal = v
+                break
+
+        if new_vassal:
+            await update_user(target_id,
+                kingdom_id=new_vassal["kingdom_id"],
+                vassal_id=new_vassal["id"]
+            )
+            new_k = await get_kingdom(new_vassal["kingdom_id"])
+            transfer_text = f"🔀 {new_k['sigil']} {new_k['name']} — {new_vassal['name']} oilasiga o'tkazildi."
+        else:
+            # Bo'sh vassal topilmadi — vassalsiz boshqa qirollikka
+            all_kingdoms = await get_all_kingdoms()
+            new_kingdom  = next(
+                (k for k in all_kingdoms if k["id"] != attacker_kingdom_id), None
+            )
+            if new_kingdom:
+                await update_user(target_id, kingdom_id=new_kingdom["id"], vassal_id=None)
+                transfer_text = f"🔀 {new_kingdom['sigil']} {new_kingdom['name']} qirolligiga o'tkazildi (vassalsiz)."
+            else:
+                transfer_text = "⚠️ Bo'sh joy topilmadi."
+
+    # Suiqasd hisobini tozalash (member uchun hits bo'lmaydi lekin zararı yo'q)
     await reset_assassination_hits(target_id)
 
     # Nishonga xabar
-    try:
-        await bot.send_message(
-            target_id,
+    if target_role == "member":
+        victim_msg = (
+            f"💀 <b>Siz Qirol farmoni bilan o'ldirildingiз!</b>\n\n"
+            f"{transfer_text}"
+        )
+    else:
+        victim_msg = (
             f"💀 <b>Siz suiqasd qurboni bo'ldingiz!</b>\n\n"
             f"Jami {death_reason} natijasida lavozimingizdan tushirildingiz.\n"
             f"Endi oddiy a'zo sifatida davom etasiz."
         )
+    try:
+        await bot.send_message(target_id, victim_msg)
     except Exception:
         pass
 
-    # Xronikada faqat lavozim ko'rinadi (ismi yashirin)
-    await add_chronicle(
-        "assassination_success",
-        f"💀 {role_label} halok bo'ldi!",
-        f"{role_label} <b>{target_name}</b> suiqasd natijasida lavozimdan tushdi.\n"
-        f"Sabab: {death_reason}",
-        actor_id=None,   # Muvaffaqiyatli bo'lsa — suiqasdchi yashirin
-        target_id=target_id
-    )
+    # Xronikaga yozish
+    if target_role == "member":
+        # Qirol farmoni — xronikada ko'rinadi (bu ochiq qatl)
+        await add_chronicle(
+            "assassination_success",
+            f"💀 Qirol farmoni — {target_name}",
+            f"👑 Qirol farmoni bilan ⚔️ {target_name} o'ldirildi.\n{transfer_text}",
+            actor_id=None,
+            target_id=target_id
+        )
+    else:
+        # Suiqasd — suiqasdchi yashirin
+        await add_chronicle(
+            "assassination_success",
+            f"💀 {role_label} halok bo'ldi!",
+            f"{role_label} <b>{target_name}</b> suiqasd natijasida lavozimdan tushdi.\n"
+            f"Sabab: {death_reason}",
+            actor_id=None,
+            target_id=target_id
+        )
 
     # Hammaga e'lon
     from database.queries import get_kingdom_members
@@ -385,6 +447,12 @@ async def _execute_death(bot, call, target, target_role, target_name,
             from database.queries import get_vassal_members
             members = await get_vassal_members(vassal["id"])
             notify_ids = {m["telegram_id"] for m in members}
+    elif target_role == "member":
+        # Faqat o'sha qirollik a'zolariga xabar
+        kingdom_id = target.get("kingdom_id")
+        if kingdom_id:
+            members = await get_kingdom_members(kingdom_id)
+            notify_ids = {m["telegram_id"] for m in members}
 
     for uid in notify_ids:
         if uid == target_id:
@@ -394,15 +462,23 @@ async def _execute_death(bot, call, target, target_role, target_name,
                 uid,
                 f"💀 <b>{role_label} {target_name} halok bo'ldi!</b>\n\n"
                 f"Sabab: {death_reason}\n"
-                f"Yangi {role_label} saylash kerak bo'ladi."
+                + (f"Yangi {role_label} saylash kerak bo'ladi." if target_role != "member" else transfer_text)
             )
         except Exception:
             pass
 
-    await call.message.edit_text(
-        f"💀 <b>{role_label} HALOK BO'LDI!</b>\n\n"
-        f"Nishon: <b>{target_name}</b>\n"
-        f"Sabab: {death_reason}\n\n"
-        f"📜 Xronikada faqat lavozimi ko'rinadi — sizning ismingiz yashirin qoldi.",
-        reply_markup=back_kb("assassination")
-    )
+    # Suiqasdchi uchun natija xabari
+    if target_role == "member":
+        result_text = (
+            f"💀 <b>{target_name} o'ldirildi!</b>\n\n"
+            f"{transfer_text}\n\n"
+            f"📜 Qirol farmoni xronikaga yozildi."
+        )
+    else:
+        result_text = (
+            f"💀 <b>{role_label} HALOK BO'LDI!</b>\n\n"
+            f"Nishon: <b>{target_name}</b>\n"
+            f"Sabab: {death_reason}\n\n"
+            f"📜 Xronikada faqat lavozimi ko'rinadi — sizning ismingiz yashirin qoldi."
+        )
+    await call.message.edit_text(result_text, reply_markup=back_kb("assassination"))
