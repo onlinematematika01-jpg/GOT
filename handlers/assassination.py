@@ -20,7 +20,7 @@ from database.queries import (
     add_chronicle, get_all_lords, get_all_kings,
     add_assassination_hit, count_assassination_hits,
     count_lord_hits, count_king_hits, get_assassination_attackers,
-    reset_assassination_hits
+    reset_assassination_hits, has_assassinated_today
 )
 from keyboards.kb import back_kb, member_main_kb
 
@@ -86,8 +86,10 @@ async def cb_assassination_menu(call: CallbackQuery, db_user: dict):
                 l_hits = await count_lord_hits(t["telegram_id"])
                 progress = f"[{hits}/{KING_DEATH_HITS} | 🛡️{l_hits}/{KING_LORD_HITS}]"
 
+        used_today = await has_assassinated_today(call.from_user.id, t["telegram_id"])
+        used_mark  = " ✅" if used_today else ""
         builder.row(InlineKeyboardButton(
-            text=f"{role_emoji} {name} • {kingdom_info}{vassal_info} {progress}",
+            text=f"{role_emoji} {name} • {kingdom_info}{vassal_info} {progress}{used_mark}",
             callback_data=f"assassinate_{t['telegram_id']}"
         ))
 
@@ -97,6 +99,8 @@ async def cb_assassination_menu(call: CallbackQuery, db_user: dict):
         "🛡️ Lord: <code>[bosgan/3]</code>\n"
         "👑 Qirol: <code>[umumiy/15 | Lord/5]</code>\n"
         "🐉 Targaryen: <code>[Qirol/3 | Lord/50]</code>\n\n"
+        "⏳ Har bir nishonga kuniga <b>1 marta</b> suiqasd qilish mumkin\n"
+        "✅ — bugun allaqachon ishlatilgan\n\n"
         "⚠️ Muvaffaqiyatsiz bo'lsa — ismingiz oshkor bo'ladi!",
         reply_markup=builder.as_markup()
     )
@@ -120,6 +124,15 @@ async def cb_do_assassination(call: CallbackQuery, db_user: dict, bot: Bot):
     target_role = target.get("role")
     if target_role not in ("lord", "king"):
         await call.answer("❌ Bu shaxsga suiqasd qilib bo'lmaydi!", show_alert=True)
+        return
+
+    # ── Kunlik limit tekshiruvi ───────────────────────────────────────────────
+    if await has_assassinated_today(call.from_user.id, target_id):
+        await call.answer(
+            "⏳ Siz bugun bu nishonga allaqachon suiqasd qildingiz!\n"
+            "Ertaga qayta urinib ko'ring.",
+            show_alert=True
+        )
         return
 
     attacker_name = attacker.get("full_name") or attacker.get("username") or str(call.from_user.id)
