@@ -65,9 +65,11 @@ async def cmd_admin(message: Message):
     if not is_admin(message.from_user.id):
         await message.answer("🚫 Ruxsat yo'q!")
         return
+    from database.queries import get_game_active
+    is_active = await get_game_active()
     await message.answer(
         "🔮 <b>Uch Ko'zli Qarg'a Paneli</b>\n\nO'yin xudosi sifatida barcha narsani boshqarasiz.",
-        reply_markup=admin_main_kb()
+        reply_markup=admin_main_kb(is_active)
     )
 
 
@@ -78,9 +80,11 @@ async def cb_admin_main(call: CallbackQuery):
     if not is_admin(call.from_user.id):
         await call.answer("🚫 Ruxsat yo'q!")
         return
+    from database.queries import get_game_active
+    is_active = await get_game_active()
     await call.message.edit_text(
         "🔮 <b>Uch Ko'zli Qarg'a Paneli</b>",
-        reply_markup=admin_main_kb()
+        reply_markup=admin_main_kb(is_active)
     )
 
 
@@ -1113,42 +1117,40 @@ async def cb_pause_game(call: CallbackQuery, bot: Bot):
     from database.queries import get_game_active, set_game_active
     is_active = await get_game_active()
 
-    if is_active:
-        # O'yinni to'xtatish
-        await set_game_active(False)
-        builder = InlineKeyboardBuilder()
-        builder.row(InlineKeyboardButton(
-            text="▶️ O'yinni davom ettirish",
-            callback_data="admin_resume_game"
-        ))
-        builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_main"))
+    if not is_active:
+        # Allaqachon to'xtatilgan — admin panelni to'g'ri holat bilan ko'rsat
         await call.message.edit_text(
-            "⏸️ <b>O'yin to'xtatildi!</b>\n\n"
-            "Barcha tugmalar va buyruqlar vaqtincha bloklandi.\n"
-            "Faqat Admin ishlashi mumkin.",
-            reply_markup=builder.as_markup()
+            "🔮 <b>Uch Ko'zli Qarg'a Paneli</b>\n\n⚠️ O'yin allaqachon to'xtatilgan!",
+            reply_markup=admin_main_kb(game_active=False)
         )
-        # Barcha foydalanuvchilarga xabar
-        from database.queries import get_pool
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            members = await conn.fetch("SELECT telegram_id FROM users")
-        for m in members:
-            try:
-                await bot.send_message(
-                    m["telegram_id"],
-                    "⏸️ <b>O'yin vaqtincha to'xtatildi!</b>\n\n"
-                    "Admin tez orada davom ettiradi..."
-                )
-            except Exception:
-                pass
-        await add_chronicle(
-            "system", "⏸️ O'yin to'xtatildi",
-            "Admin tomonidan o'yin vaqtincha to'xtatildi",
-            actor_id=call.from_user.id, bot=bot
-        )
-    else:
-        await call.answer("O'yin allaqachon to'xtatilgan!", show_alert=True)
+        return
+
+    # O'yinni to'xtatish
+    await set_game_active(False)
+    await call.message.edit_text(
+        "🔮 <b>Uch Ko'zli Qarg'a Paneli</b>\n\n⏸️ O'yin to'xtatildi!",
+        reply_markup=admin_main_kb(game_active=False)
+    )
+
+    # Barcha foydalanuvchilarga xabar
+    from database.queries import get_pool
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        members = await conn.fetch("SELECT telegram_id FROM users")
+    for m in members:
+        try:
+            await bot.send_message(
+                m["telegram_id"],
+                "⏸️ <b>O'yin vaqtincha to'xtatildi!</b>\n\n"
+                "Admin tez orada davom ettiradi..."
+            )
+        except Exception:
+            pass
+    await add_chronicle(
+        "system", "⏸️ O'yin to'xtatildi",
+        "Admin tomonidan o'yin vaqtincha to'xtatildi",
+        actor_id=call.from_user.id, bot=bot
+    )
 
 
 @router.callback_query(F.data == "admin_resume_game")
@@ -1157,19 +1159,21 @@ async def cb_resume_game(call: CallbackQuery, bot: Bot):
         await call.answer("🚫 Ruxsat yo'q!")
         return
 
-    from database.queries import set_game_active
-    await set_game_active(True)
+    from database.queries import get_game_active, set_game_active
+    is_active = await get_game_active()
 
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(
-        text="⏸️ O'yinni to'xtatish",
-        callback_data="admin_pause_game"
-    ))
-    builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_main"))
+    if is_active:
+        # Allaqachon faol — to'g'ri holat bilan ko'rsat
+        await call.message.edit_text(
+            "🔮 <b>Uch Ko'zli Qarg'a Paneli</b>\n\n⚠️ O'yin allaqachon faol!",
+            reply_markup=admin_main_kb(game_active=True)
+        )
+        return
+
+    await set_game_active(True)
     await call.message.edit_text(
-        "▶️ <b>O'yin davom ettirildi!</b>\n\n"
-        "Barcha tugmalar va buyruqlar faollashdi.",
-        reply_markup=builder.as_markup()
+        "🔮 <b>Uch Ko'zli Qarg'a Paneli</b>\n\n▶️ O'yin davom ettirildi!",
+        reply_markup=admin_main_kb(game_active=True)
     )
 
     # Barcha foydalanuvchilarga xabar
