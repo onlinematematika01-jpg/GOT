@@ -42,20 +42,51 @@ TARGARYEN_KINGDOM = "Targaryen"
 
 @router.callback_query(F.data == "assassination")
 async def cb_assassination_menu(call: CallbackQuery, db_user: dict):
-    role = db_user.get("role", "member")
+    role               = db_user.get("role", "member")
+    attacker_id        = call.from_user.id
+    attacker_kingdom   = db_user.get("kingdom_id")
+    attacker_vassal    = db_user.get("vassal_id")
 
     lords = await get_all_lords()
     kings = await get_all_kings()
-
-    # O'z rolidan qat'iy nazar hamma suiqasd qila oladi,
-    # lekin faqat Lord va Qirollarga
     targets = []
-    for l in lords:
-        if l["telegram_id"] != call.from_user.id:
-            targets.append(("lord", l))
-    for k in kings:
-        if k["telegram_id"] != call.from_user.id:
-            targets.append(("king", k))
+
+    if role == "member":
+        # Member → faqat O'Z Lord va Qiroli
+        for l in lords:
+            if l.get("vassal_id") == attacker_vassal and l["telegram_id"] != attacker_id:
+                targets.append(("lord", l))
+        for k in kings:
+            if k.get("kingdom_id") == attacker_kingdom and k["telegram_id"] != attacker_id:
+                targets.append(("king", k))
+
+    elif role == "lord":
+        # Lord → o'z Qiroli + boshqa qirollik Lord va Qirollari
+        for k in kings:
+            if k.get("kingdom_id") == attacker_kingdom and k["telegram_id"] != attacker_id:
+                targets.append(("king", k))
+        for l in lords:
+            if l.get("kingdom_id") != attacker_kingdom and l["telegram_id"] != attacker_id:
+                targets.append(("lord", l))
+        for k in kings:
+            if k.get("kingdom_id") != attacker_kingdom and k["telegram_id"] != attacker_id:
+                targets.append(("king", k))
+
+    elif role == "king":
+        # King → o'z qirolligidagi HAMMA + boshqa qirollik Lord va Qirollari
+        from database.queries import get_kingdom_members
+        own_members = await get_kingdom_members(attacker_kingdom)
+        for m in own_members:
+            if m["telegram_id"] == attacker_id:
+                continue
+            if m["role"] in ("lord", "king", "member"):
+                targets.append((m["role"], dict(m)))
+        for l in lords:
+            if l.get("kingdom_id") != attacker_kingdom and l["telegram_id"] != attacker_id:
+                targets.append(("lord", l))
+        for k in kings:
+            if k.get("kingdom_id") != attacker_kingdom and k["telegram_id"] != attacker_id:
+                targets.append(("king", k))
 
     if not targets:
         await call.message.edit_text(
@@ -65,37 +96,54 @@ async def cb_assassination_menu(call: CallbackQuery, db_user: dict):
         return
 
     builder = InlineKeyboardBuilder()
+    seen = set()
     for target_role, t in targets:
-        role_emoji = "👑" if target_role == "king" else "🛡️"
+        tid = t["telegram_id"]
+        if tid in seen:
+            continue
+        seen.add(tid)
+
+        role_emoji   = "👑" if target_role == "king" else ("🛡️" if target_role == "lord" else "⚔️")
         kingdom_info = f"{t.get('sigil','')}{t.get('kingdom_name','')}"
         vassal_info  = f" • {t.get('vassal_name','')}" if target_role == "lord" else ""
-        hits = await count_assassination_hits(t["telegram_id"])
-        name = t["full_name"] or t["username"] or str(t["telegram_id"])
+        name         = t.get("full_name") or t.get("username") or str(tid)
 
-        # Hit progress ko'rsatish
+        # Hit progress — faqat Lord va King uchun (member uchun yo'q)
         if target_role == "lord":
+            hits     = await count_assassination_hits(tid)
             progress = f"[{hits}/{LORD_DEATH_HITS}]"
-        else:
-            # Targaryen qiroli maxsus
-            k_info = await get_kingdom_by_king(t["telegram_id"])
+        elif target_role == "king":
+            hits     = await count_assassination_hits(tid)
+            k_info   = await get_kingdom_by_king(tid)
             if k_info and k_info["name"] == TARGARYEN_KINGDOM:
-                k_hits = await count_king_hits(t["telegram_id"])
-                l_hits = await count_lord_hits(t["telegram_id"])
+                k_hits   = await count_king_hits(tid)
+                l_hits   = await count_lord_hits(tid)
                 progress = f"[👑{k_hits}/{TARGARYEN_KING_HITS} | 🛡️{l_hits}/{TARGARYEN_LORD_HITS}]"
             else:
-                l_hits = await count_lord_hits(t["telegram_id"])
+                l_hits   = await count_lord_hits(tid)
                 progress = f"[{hits}/{KING_DEATH_HITS} | 🛡️{l_hits}/{KING_LORD_HITS}]"
+        else:
+            progress = ""
 
-        used_today = await has_assassinated_today(call.from_user.id, t["telegram_id"])
+        used_today = await has_assassinated_today(call.from_user.id, tid)
         used_mark  = " ✅" if used_today else ""
         builder.row(InlineKeyboardButton(
             text=f"{role_emoji} {name} • {kingdom_info}{vassal_info} {progress}{used_mark}",
-            callback_data=f"assassinate_{t['telegram_id']}"
+            callback_data=f"assassinate_{tid}"
         ))
+
+    # Rol bo'yicha izoh matni
+    if role == "member":
+        hint = "⚔️ Siz faqat <b>o'z Lord va Qirolingizga</b> suiqasd qila olasiz."
+    elif role == "lord":
+        hint = "🛡️ Siz <b>o'z Qirolingiz</b> va <b>boshqa qirollik Lord/Qirollariga</b> suiqasd qila olasiz."
+    else:
+        hint = "👑 Siz <b>o'z qirolligingizdagi hamma</b> va <b>boshqa qirollik Lord/Qirollariga</b> suiqasd qila olasiz."
 
     builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="market_main"))
     await call.message.edit_text(
         "🗡️ <b>Suiqasd — Nishonni tanlang</b>\n\n"
+        f"{hint}\n\n"
         "🛡️ Lord: <code>[bosgan/3]</code>\n"
         "👑 Qirol: <code>[umumiy/15 | Lord/5]</code>\n"
         "🐉 Targaryen: <code>[Qirol/3 | Lord/50]</code>\n\n"
@@ -121,8 +169,41 @@ async def cb_do_assassination(call: CallbackQuery, db_user: dict, bot: Bot):
         await call.answer("❌ Nishon topilmadi!", show_alert=True)
         return
 
-    target_role = target.get("role")
-    if target_role not in ("lord", "king"):
+    target_role      = target.get("role")
+    attacker_role    = db_user.get("role", "member")
+    attacker_kingdom = db_user.get("kingdom_id")
+    attacker_vassal  = db_user.get("vassal_id")
+    target_kingdom   = target.get("kingdom_id")
+    target_vassal    = target.get("vassal_id")
+    same_kingdom     = attacker_kingdom and target_kingdom and attacker_kingdom == target_kingdom
+
+    allowed = False
+
+    if attacker_role == "member":
+        # Faqat o'z Lord va Qiroli
+        own_lord  = target_role == "lord" and target_vassal == attacker_vassal
+        own_king  = target_role == "king" and same_kingdom
+        allowed   = own_lord or own_king
+
+    elif attacker_role == "lord":
+        # O'z Qiroli + boshqa qirollik Lord va Qirollari
+        own_king      = target_role == "king" and same_kingdom
+        foreign_lord  = target_role == "lord" and not same_kingdom
+        foreign_king  = target_role == "king" and not same_kingdom
+        allowed       = own_king or foreign_lord or foreign_king
+
+    elif attacker_role == "king":
+        # O'z qirolligidagi hamma + boshqa qirollik Lord va Qirollari
+        own_anyone    = same_kingdom
+        foreign_lord  = target_role == "lord" and not same_kingdom
+        foreign_king  = target_role == "king" and not same_kingdom
+        allowed       = own_anyone or foreign_lord or foreign_king
+
+    if not allowed:
+        await call.answer("❌ Sizning rolingiz bu nishonga suiqasd qila olmaydi!", show_alert=True)
+        return
+
+    if target_role not in ("lord", "king", "member"):
         await call.answer("❌ Bu shaxsga suiqasd qilib bo'lmaydi!", show_alert=True)
         return
 
@@ -150,13 +231,17 @@ async def cb_do_assassination(call: CallbackQuery, db_user: dict, bot: Bot):
     is_dead = False
     death_reason = ""
 
-    if target_role == "lord":
+    if target_role == "member":
+        # King o'z a'zosiga suiqasd qilsa — bir zarbada o'ladi
+        is_dead = True
+        death_reason = "Qirol farmoni"
+
+    elif target_role == "lord":
         if total_hits >= LORD_DEATH_HITS:
             is_dead = True
             death_reason = f"{LORD_DEATH_HITS} ta suiqasd"
 
     elif target_role == "king":
-        # Targaryen maxsus
         k_info = await get_kingdom_by_king(target_id)
         is_targaryen = k_info and k_info["name"] == TARGARYEN_KINGDOM
 
