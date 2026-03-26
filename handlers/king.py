@@ -9,7 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database.queries import (
     get_kingdom_by_king, get_kingdom, get_kingdom_vassals, get_vassal,
-    get_kingdom_members, update_kingdom, update_vassal, get_user,
+    get_kingdom_members, update_kingdom, update_vassal, get_user, update_user,
     add_chronicle, create_diplomacy, update_diplomacy, get_pending_diplomacy,
     get_all_kingdoms, get_vassal_members
 )
@@ -76,8 +76,8 @@ async def cb_king_status(call: CallbackQuery, db_user: dict):
 
     for v in vassals:
         lord_mark = "👑 Lord" if v["lord_id"] else "❌ Lodsiz"
-        vmembers = await get_kingdom_members(kingdom["id"])
-        text += f"  🛡️ <b>{v['name']}</b> — {lord_mark} | 💰 {v['gold']}\n"
+        vmembers = await get_vassal_members(v["id"])
+        text += f"  🛡️ <b>{v['name']}</b> — {lord_mark} | 💰 {v['gold']} | 👥 {len(vmembers)} a'zo\n"
 
     await call.message.edit_text(text, reply_markup=back_kb("king_main"))
 
@@ -242,6 +242,10 @@ async def cb_punish_vassal(call: CallbackQuery, state: FSMContext, db_user: dict
         return
 
     vassal = await get_vassal(vassal_id)
+    # Lord rolini olib tashlash
+    if vassal["lord_id"]:
+        await update_user(vassal["lord_id"], role="member")
+
     # Deduct soldiers & notify members
     await update_kingdom(kingdom["id"], soldiers=kingdom["soldiers"] - PUNISHMENT_SOLDIER_COST)
     members = await get_vassal_members(vassal_id)
@@ -254,11 +258,14 @@ async def cb_punish_vassal(call: CallbackQuery, state: FSMContext, db_user: dict
         except Exception:
             pass
 
-    # Remove vassal & reassign members
+    # Remove vassal & reassign members (kingdom ga bog'lab qo'yamiz, vassalsiz)
     from database.db import get_pool
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute("UPDATE users SET vassal_id=NULL WHERE vassal_id=$1", vassal_id)
+        await conn.execute(
+            "UPDATE users SET vassal_id=NULL, role='member' WHERE vassal_id=$1",
+            vassal_id
+        )
         await conn.execute("DELETE FROM vassals WHERE id=$1", vassal_id)
 
     await state.clear()
