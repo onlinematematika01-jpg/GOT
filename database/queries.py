@@ -633,7 +633,7 @@ async def get_active_war(kingdom_id: int):
             """SELECT * FROM wars
                WHERE (attacker_id=$1 OR defender_id=$1)
                AND status NOT IN ('finished')
-               ORDER BY declared_at DESC LIMIT 1""",
+               ORDER BY starts_at DESC LIMIT 1""",
             kingdom_id
         )
 
